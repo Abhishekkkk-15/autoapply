@@ -4,6 +4,7 @@ import type {
   UserProfile,
   ApplyStepResult,
   Platform,
+  CustomQuestionAnswer,
 } from '@/src/lib/types';
 import {
   simulateClick,
@@ -111,8 +112,35 @@ export class LinkedInAdapter extends JobPlatformAdapter {
 
   async executeApplyStep(
     profile: UserProfile,
-    isSemiAuto: boolean
+    isSemiAuto: boolean,
+    customOptions?: {
+      customPitch?: string;
+      customCoverLetter?: string;
+      customAnswers?: CustomQuestionAnswer[];
+    }
   ): Promise<ApplyStepResult> {
+    const customAnswersList: CustomQuestionAnswer[] = [
+      ...(profile.customAnswers || []),
+      ...(customOptions?.customAnswers || []),
+    ];
+
+    if (customOptions?.customCoverLetter) {
+      customAnswersList.push({
+        questionPattern: 'cover letter|summary|note to hiring manager|additional info',
+        answer: customOptions.customCoverLetter,
+      });
+    } else if (customOptions?.customPitch) {
+      customAnswersList.push({
+        questionPattern: 'pitch|summary|note to hiring manager|why are you interested',
+        answer: customOptions.customPitch,
+      });
+    }
+
+    const activeProfile: UserProfile = {
+      ...profile,
+      customAnswers: customAnswersList,
+    };
+
     // Check if modal is already open
     let modal = this.getModalElement();
 
@@ -160,7 +188,7 @@ export class LinkedInAdapter extends JobPlatformAdapter {
       }
 
       // 1. Fill current step form fields
-      await this.fillCurrentStepFields(currentModal, profile, jobContext);
+      await this.fillCurrentStepFields(currentModal, activeProfile, jobContext);
       await randomDelay(500, 1000);
 
       // 2. Identify the primary action button (Next, Review, or Submit)

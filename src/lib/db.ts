@@ -6,6 +6,7 @@ import type {
   ApplicationStatus,
   UserProfile,
   AppSettings,
+  GeneratedArtifacts,
 } from './types';
 
 export interface StoredContact {
@@ -96,6 +97,32 @@ export async function updateJobStatus(
   const updatePayload: Partial<AppliedJobRecord> = { status };
   if (notes !== undefined) updatePayload.notes = notes;
   await db.appliedJobs.update(id, updatePayload);
+}
+
+export async function updateJobArtifacts(
+  platform: Platform,
+  externalJobId: string,
+  artifacts?: Partial<GeneratedArtifacts>,
+  notes?: string,
+  status?: ApplicationStatus
+): Promise<boolean> {
+  const found = await db.appliedJobs
+    .where({ platform, externalJobId })
+    .first();
+  if (found?.id) {
+    const updatePayload: Partial<AppliedJobRecord> = {};
+    if (artifacts) {
+      updatePayload.generatedArtifacts = {
+        ...found.generatedArtifacts,
+        ...artifacts,
+      };
+    }
+    if (notes !== undefined) updatePayload.notes = notes;
+    if (status !== undefined) updatePayload.status = status;
+    await db.appliedJobs.update(found.id, updatePayload);
+    return true;
+  }
+  return false;
 }
 
 export async function getAppliedJobs(limit = 200): Promise<AppliedJobRecord[]> {

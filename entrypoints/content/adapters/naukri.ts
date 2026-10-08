@@ -4,6 +4,7 @@ import type {
   UserProfile,
   ApplyStepResult,
   Platform,
+  CustomQuestionAnswer,
 } from '@/src/lib/types';
 import {
   simulateClick,
@@ -88,8 +89,20 @@ export class NaukriAdapter extends JobPlatformAdapter {
 
   async executeApplyStep(
     profile: UserProfile,
-    isSemiAuto: boolean
+    isSemiAuto: boolean,
+    customOptions?: {
+      customPitch?: string;
+      customCoverLetter?: string;
+      customAnswers?: CustomQuestionAnswer[];
+    }
   ): Promise<ApplyStepResult> {
+    const activeProfile: UserProfile = {
+      ...profile,
+      customAnswers: [
+        ...(profile.customAnswers || []),
+        ...(customOptions?.customAnswers || []),
+      ],
+    };
     const job = await this.parseCurrentJob();
     if (!job) {
       return { status: 'FAILED', message: 'Failed to parse Naukri job.' };

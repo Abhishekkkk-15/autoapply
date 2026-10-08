@@ -92,7 +92,11 @@ export default defineContentScript({
             const isSemiAuto =
               message.payload?.mode === 'semi-auto' || settings.mode === 'semi-auto';
 
-            const result = await adapter.executeApplyStep(profile, isSemiAuto);
+            const result = await adapter.executeApplyStep(profile, isSemiAuto, {
+              customPitch: message.payload?.customPitch,
+              customCoverLetter: message.payload?.customCoverLetter,
+              customAnswers: message.payload?.customAnswers,
+            });
             sendResponse(result);
           } catch (err: any) {
             console.error('[AutoApply AI] Application step error:', err);

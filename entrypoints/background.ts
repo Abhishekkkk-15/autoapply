@@ -7,11 +7,16 @@ import type {
   AppliedJobRecord,
   SearchAndApplyParams,
   UserProfile,
+  CustomQuestionAnswer,
+  GeneratedArtifacts,
+  Platform,
+  ApplicationStatus,
 } from '@/src/lib/types';
 import { buildJobSearchUrl } from '@/src/lib/search-urls';
 import {
   db,
   addAppliedJob,
+  updateJobArtifacts,
   addLog,
   getAppSettings,
   getUserProfile,
@@ -112,12 +117,44 @@ export default defineBackground(() => {
     return state.currentJob || null;
   });
 
-  mcpBridge.registerHandler('APPLY_CURRENT_JOB', async (payload: { mode?: 'semi-auto' | 'full-auto' }) => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) throw new Error('No active browser tab found.');
-    await executeApplyOnTab(tab.id, payload?.mode || state.mode);
-    return state;
-  });
+  mcpBridge.registerHandler(
+    'APPLY_CURRENT_JOB',
+    async (payload: {
+      mode?: 'semi-auto' | 'full-auto';
+      customPitch?: string;
+      customCoverLetter?: string;
+      customAnswers?: CustomQuestionAnswer[];
+    }) => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) throw new Error('No active browser tab found.');
+      await executeApplyOnTab(tab.id, payload?.mode || state.mode, {
+        customPitch: payload?.customPitch,
+        customCoverLetter: payload?.customCoverLetter,
+        customAnswers: payload?.customAnswers,
+      });
+      return state;
+    }
+  );
+
+  mcpBridge.registerHandler(
+    'SAVE_JOB_ARTIFACTS',
+    async (payload: {
+      platform: Platform;
+      externalJobId: string;
+      artifacts?: Partial<GeneratedArtifacts>;
+      notes?: string;
+      status?: ApplicationStatus;
+    }) => {
+      const updated = await updateJobArtifacts(
+        payload.platform,
+        payload.externalJobId,
+        payload.artifacts,
+        payload.notes,
+        payload.status
+      );
+      return { success: updated };
+    }
+  );
 
   mcpBridge.registerHandler('SUBMIT_PENDING_APPROVAL', async () => {
     if (!activeTabId) {
@@ -285,7 +322,11 @@ export default defineBackground(() => {
             return;
           }
           const mode = message.payload?.mode || state.mode;
-          await executeApplyOnTab(tab.id, mode);
+          await executeApplyOnTab(tab.id, mode, {
+            customPitch: message.payload?.customPitch,
+            customCoverLetter: message.payload?.customCoverLetter,
+            customAnswers: message.payload?.customAnswers,
+          });
           sendResponse({ ok: true });
         })();
         return true;
@@ -339,6 +380,19 @@ export default defineBackground(() => {
         return true;
       }
 
+      case 'SAVE_JOB_ARTIFACTS': {
+        updateJobArtifacts(
+          message.payload.platform,
+          message.payload.externalJobId,
+          message.payload.artifacts,
+          message.payload.notes,
+          message.payload.status
+        ).then((ok) => {
+          sendResponse({ ok });
+        });
+        return true;
+      }
+
       case 'GET_MCP_STATUS': {
         sendResponse(mcpBridge.getStatus());
         return false;
@@ -352,7 +406,15 @@ export default defineBackground(() => {
     }
   });
 
-  async function executeApplyOnTab(tabId: number, mode: 'semi-auto' | 'full-auto') {
+  async function executeApplyOnTab(
+    tabId: number,
+    mode: 'semi-auto' | 'full-auto',
+    customOptions?: {
+      customPitch?: string;
+      customCoverLetter?: string;
+      customAnswers?: CustomQuestionAnswer[];
+    }
+  ) {
     activeTabId = tabId;
     const settings = await getAppSettings();
 
@@ -411,10 +473,18 @@ export default defineBackground(() => {
       // 3. Dispatch apply action to content script
       const result: ApplyStepResult = await chrome.tabs.sendMessage(tabId, {
         type: 'EXECUTE_APPLY_ON_CURRENT_TAB',
-        payload: { mode },
+        payload: {
+          mode,
+          customPitch: customOptions?.customPitch,
+          customCoverLetter: customOptions?.customCoverLetter,
+          customAnswers: customOptions?.customAnswers,
+        },
       } as ExtensionMessage);
 
-      await handleApplyStepResult(result, job);
+      await handleApplyStepResult(result, job, {
+        coverLetter: customOptions?.customCoverLetter,
+        pitchNote: customOptions?.customPitch,
+      });
     } catch (err: any) {
       console.error('[Background] Error applying on tab:', err);
       await updateState({
@@ -428,7 +498,8 @@ export default defineBackground(() => {
 
   async function handleApplyStepResult(
     result: ApplyStepResult,
-    job?: ScrapedJob
+    job?: ScrapedJob,
+    customArtifacts?: Partial<GeneratedArtifacts>
   ) {
     if (!result) return;
 
@@ -460,14 +531,14 @@ export default defineBackground(() => {
 
       // Generate and store complete artifacts (cover letter, cold email, recruiter outreach)
       if (job) {
-        saveJobAndArtifacts(job, 'APPLIED');
+        saveJobAndArtifacts(job, 'APPLIED', customArtifacts);
       }
       return;
     }
 
     if (result.status === 'MANUAL_EXTERNAL') {
       if (job) {
-        saveJobAndArtifacts(job, 'MANUAL_EXTERNAL');
+        saveJobAndArtifacts(job, 'MANUAL_EXTERNAL', customArtifacts);
       }
       await updateState({
         status: 'IDLE',
@@ -479,7 +550,7 @@ export default defineBackground(() => {
 
     if (result.status === 'SKIPPED') {
       if (job) {
-        saveJobAndArtifacts(job, 'SKIPPED');
+        saveJobAndArtifacts(job, 'SKIPPED', customArtifacts);
       }
       await updateState({
         status: 'IDLE',
@@ -491,7 +562,7 @@ export default defineBackground(() => {
 
     if (result.status === 'FAILED') {
       if (job) {
-        saveJobAndArtifacts(job, 'FAILED');
+        saveJobAndArtifacts(job, 'FAILED', customArtifacts);
       }
       await updateState({
         status: 'ERROR',
@@ -502,13 +573,31 @@ export default defineBackground(() => {
     }
   }
 
-  async function saveJobAndArtifacts(job: ScrapedJob, status: any) {
+  async function saveJobAndArtifacts(
+    job: ScrapedJob,
+    status: any,
+    customArtifacts?: Partial<GeneratedArtifacts>
+  ) {
     try {
       const profile = await getUserProfile();
 
-      // Generate Pitch, Cover Letter, and Cold Outreach in background
-      const { coverLetter, pitchNote } = await generatePitchAndLetter(profile, job);
-      const outreach = await generateColdOutreach(profile, job, job.extractedContacts);
+      // Prioritize CLI Agent's generated artifacts if provided
+      let coverLetter = customArtifacts?.coverLetter;
+      let pitchNote = customArtifacts?.pitchNote;
+      let coldEmail = customArtifacts?.coldEmail;
+      let linkedinConnectionNote = customArtifacts?.linkedinConnectionNote;
+
+      if (!coverLetter || !pitchNote) {
+        const generated = await generatePitchAndLetter(profile, job);
+        coverLetter = coverLetter || generated.coverLetter;
+        pitchNote = pitchNote || generated.pitchNote;
+      }
+
+      if (!coldEmail) {
+        const outreach = await generateColdOutreach(profile, job, job.extractedContacts);
+        coldEmail = coldEmail || outreach.coldEmail;
+        linkedinConnectionNote = linkedinConnectionNote || outreach.linkedinConnectionNote;
+      }
 
       const record: Omit<AppliedJobRecord, 'id'> = {
         platform: job.platform,
@@ -522,12 +611,12 @@ export default defineBackground(() => {
         generatedArtifacts: {
           coverLetter,
           pitchNote,
-          coldEmail: outreach.coldEmail,
-          linkedinConnectionNote: outreach.linkedinConnectionNote,
+          coldEmail,
+          linkedinConnectionNote,
         },
         status,
         appliedAt: Date.now(),
-        notes: `Auto-recorded on ${new Date().toLocaleDateString()}`,
+        notes: `Recorded on ${new Date().toLocaleDateString()}`,
       };
 
       await addAppliedJob(record);

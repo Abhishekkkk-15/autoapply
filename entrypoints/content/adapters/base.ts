@@ -3,6 +3,7 @@ import type {
   UserProfile,
   ApplyStepResult,
   Platform,
+  CustomQuestionAnswer,
 } from '@/src/lib/types';
 
 export interface SearchCardInfo {
@@ -37,7 +38,12 @@ export abstract class JobPlatformAdapter {
    */
   abstract executeApplyStep(
     profile: UserProfile,
-    isSemiAuto: boolean
+    isSemiAuto: boolean,
+    customOptions?: {
+      customPitch?: string;
+      customCoverLetter?: string;
+      customAnswers?: CustomQuestionAnswer[];
+    }
   ): Promise<ApplyStepResult>;
 
   /**

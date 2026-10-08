@@ -4,6 +4,7 @@ import type {
   UserProfile,
   ApplyStepResult,
   Platform,
+  CustomQuestionAnswer,
 } from '@/src/lib/types';
 import {
   simulateClick,
@@ -95,7 +96,12 @@ export class WellfoundAdapter extends JobPlatformAdapter {
 
   async executeApplyStep(
     profile: UserProfile,
-    isSemiAuto: boolean
+    isSemiAuto: boolean,
+    customOptions?: {
+      customPitch?: string;
+      customCoverLetter?: string;
+      customAnswers?: CustomQuestionAnswer[];
+    }
   ): Promise<ApplyStepResult> {
     const job = await this.parseCurrentJob();
     if (!job) {
@@ -125,15 +131,21 @@ export class WellfoundAdapter extends JobPlatformAdapter {
       return { status: 'FAILED', message: 'Failed to open Wellfound application modal.' };
     }
 
-    // Generate bespoke ~150-word pitch note
-    const { pitchNote, coverLetter } = await generatePitchAndLetter(profile, job);
+    // Use CLI Agent's custom pitch note if provided, otherwise generate
+    let pitchNote = customOptions?.customPitch?.trim() || '';
+    let coverLetter = customOptions?.customCoverLetter?.trim() || '';
+    if (!pitchNote) {
+      const generated = await generatePitchAndLetter(profile, job);
+      pitchNote = generated.pitchNote;
+      coverLetter = generated.coverLetter;
+    }
 
     // Look for recruiter note textarea
     const noteTextarea = modal.querySelector<HTMLTextAreaElement>(
       'textarea[name="userNote"], textarea[placeholder*="note"], textarea[placeholder*="Why"], textarea'
     );
 
-    if (noteTextarea) {
+    if (noteTextarea && pitchNote) {
       setNativeValue(noteTextarea, pitchNote);
       await randomDelay(300, 600);
     }

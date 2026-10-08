@@ -183,13 +183,31 @@ export type ExtensionMessage =
   | { type: 'RESUME_QUEUE' }
   | { type: 'STOP_QUEUE' }
   | { type: 'START_SEARCH_AND_APPLY'; payload: SearchAndApplyParams }
-  | { type: 'EXECUTE_APPLY_ON_CURRENT_TAB'; payload?: { mode?: 'semi-auto' | 'full-auto' } }
+  | {
+      type: 'EXECUTE_APPLY_ON_CURRENT_TAB';
+      payload?: {
+        mode?: 'semi-auto' | 'full-auto';
+        customPitch?: string;
+        customCoverLetter?: string;
+        customAnswers?: CustomQuestionAnswer[];
+      };
+    }
   | { type: 'SUBMIT_PENDING_APPROVAL' }
   | { type: 'CANCEL_PENDING_APPROVAL' }
   | { type: 'GET_STATE' }
   | { type: 'STATE_UPDATE'; payload: AutomationState }
   | { type: 'LOG_EVENT'; payload: ExecutionLog }
   | { type: 'STORE_APPLIED_JOB'; payload: AppliedJobRecord }
+  | {
+      type: 'SAVE_JOB_ARTIFACTS';
+      payload: {
+        platform: Platform;
+        externalJobId: string;
+        artifacts?: Partial<GeneratedArtifacts>;
+        notes?: string;
+        status?: ApplicationStatus;
+      };
+    }
   | { type: 'CONTENT_PARSED_JOB'; payload: ScrapedJob }
   | { type: 'CONTENT_STEP_RESULT'; payload: ApplyStepResult }
   | { type: 'CHECK_TAB_PLATFORM' }

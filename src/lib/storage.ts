@@ -36,11 +36,12 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   maxDelaySeconds: 9,
   autoSubmit: false,
   llmConfig: {
-    provider: 'openai',
+    provider: 'mcp',
     apiKey: '',
-    baseUrl: 'https://api.openai.com/v1',
-    model: 'gpt-4o-mini',
+    baseUrl: 'ws://127.0.0.1:8765',
+    model: 'coding-agent-mcp',
     temperature: 0.2,
+    mcpBridgePort: 8765,
   },
 };
 

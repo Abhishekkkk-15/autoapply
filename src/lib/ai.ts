@@ -298,9 +298,23 @@ function matchHeuristicAnswer(
     };
   }
 
+  // Country code dropdown / select
+  if (normLabel.includes('country code') || normLabel.includes('phone code')) {
+    const matchOption = options.find((o) =>
+      o.toLowerCase().includes('india') || o.includes('+91')
+    );
+    return {
+      answer: matchOption || 'India (+91)',
+      confidence: 1.0,
+      reasoning: 'Profile country code match',
+    };
+  }
+
   // Phone / Email / City
   if (normLabel.includes('phone') || normLabel.includes('mobile')) {
-    return { answer: profile.phone, confidence: 1.0 };
+    const cleanDigits = profile.phone.replace(/\D/g, '');
+    const tenDigits = cleanDigits.length > 10 ? cleanDigits.slice(-10) : cleanDigits;
+    return { answer: tenDigits || profile.phone, confidence: 1.0 };
   }
   if (normLabel.includes('email')) {
     return { answer: profile.email, confidence: 1.0 };

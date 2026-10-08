@@ -16,6 +16,7 @@ import { buildJobSearchUrl } from '@/src/lib/search-urls';
 import {
   db,
   addAppliedJob,
+  isAlreadyApplied,
   updateJobArtifacts,
   addLog,
   getAppSettings,
@@ -130,6 +131,22 @@ export default defineBackground(() => {
     }
   }
 
+  async function sendTabMessage<T = any>(
+    tabId: number,
+    message: ExtensionMessage,
+    preferMainFrame = true
+  ): Promise<T> {
+    if (preferMainFrame) {
+      try {
+        const res = await chrome.tabs.sendMessage(tabId, message, { frameId: 0 });
+        if (res !== undefined && res !== null) return res;
+      } catch {
+        // Fallback to broadcast across frames if frameId 0 fails
+      }
+    }
+    return await chrome.tabs.sendMessage(tabId, message);
+  }
+
   // Register MCP bridge RPC handlers for coding agents (Claude Code, Antigravity, Cursor)
   mcpBridge.registerHandler('GET_STATE', async () => state);
 
@@ -137,7 +154,7 @@ export default defineBackground(() => {
     const tab = await getActiveTab();
     if (!tab?.id) return state.currentJob || null;
     try {
-      const res = await chrome.tabs.sendMessage(tab.id, { type: 'CHECK_TAB_PLATFORM' });
+      const res = await sendTabMessage(tab.id, { type: 'CHECK_TAB_PLATFORM' });
       if (res?.matched && res.job) {
         state.currentJob = res.job;
         return res.job;
@@ -194,14 +211,14 @@ export default defineBackground(() => {
     let job = state.currentJob;
     if (!job) {
       try {
-        const check = await chrome.tabs.sendMessage(activeTabId, { type: 'CHECK_TAB_PLATFORM' });
+        const check = await sendTabMessage(activeTabId, { type: 'CHECK_TAB_PLATFORM' });
         if (check?.job) {
           job = check.job;
           state.currentJob = job;
         }
       } catch {}
     }
-    const res = await chrome.tabs.sendMessage(activeTabId, { type: 'SUBMIT_PENDING_APPROVAL' });
+    const res = await sendTabMessage(activeTabId, { type: 'SUBMIT_PENDING_APPROVAL' });
     await handleApplyStepResult(res, job || state.currentJob);
     if (pendingApprovalResolver) {
       pendingApprovalResolver(res?.status === 'SUBMITTED' ? 'approved' : 'cancelled');
@@ -361,7 +378,7 @@ export default defineBackground(() => {
       targetTabId = activeTab?.id;
     }
     if (!targetTabId) throw new Error('No active tab to scrape.');
-    const res = await chrome.tabs.sendMessage(targetTabId, {
+    const res = await sendTabMessage(targetTabId, {
       type: 'SCRAPE_CURRENT_PAGE',
     } as ExtensionMessage);
     return res;
@@ -370,7 +387,7 @@ export default defineBackground(() => {
   mcpBridge.registerHandler('UNIVERSAL_APPLY', async (payload: { mode?: 'semi-auto' | 'full-auto'; customPitch?: string }) => {
     const activeTab = await getActiveTab();
     if (!activeTab?.id) throw new Error('No active tab found.');
-    const res = await chrome.tabs.sendMessage(activeTab.id, {
+    const res = await sendTabMessage(activeTab.id, {
       type: 'EXECUTE_APPLY_ON_CURRENT_TAB',
       payload: { mode: payload.mode || 'full-auto', customPitch: payload.customPitch },
     } as ExtensionMessage);
@@ -404,6 +421,34 @@ export default defineBackground(() => {
       minDelay: settings.minDelaySeconds,
       maxDelay: settings.maxDelaySeconds,
     };
+  });
+
+  mcpBridge.registerHandler('RELOAD_EXTENSION', async () => {
+    setTimeout(() => {
+      chrome.runtime.reload();
+    }, 100);
+    return { reloading: true };
+  });
+
+  mcpBridge.registerHandler('EVAL_IN_TAB', async (payload: { tabId?: number; code: string }) => {
+    let targetTabId = payload?.tabId;
+    if (!targetTabId) {
+      const activeTab = await getActiveTab();
+      targetTabId = activeTab?.id;
+    }
+    if (!targetTabId) throw new Error('No active tab.');
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: targetTabId },
+      func: (codeStr: string) => {
+        try {
+          return { success: true, result: (window as any).eval(codeStr) };
+        } catch (e: any) {
+          return { success: false, error: e.message };
+        }
+      },
+      args: [payload.code],
+    });
+    return results[0]?.result;
   });
 
   mcpBridge.setOnStateChange((mcpStatus) => {
@@ -716,7 +761,7 @@ export default defineBackground(() => {
 
     try {
       // 1. Ask content script to inspect and parse current job
-      const checkRes = await chrome.tabs.sendMessage(tabId, {
+      const checkRes = await sendTabMessage(tabId, {
         type: 'CHECK_TAB_PLATFORM',
       } as ExtensionMessage);
 
@@ -759,7 +804,7 @@ export default defineBackground(() => {
       }
 
       // 3. Dispatch apply action to content script
-      const result: ApplyStepResult = await chrome.tabs.sendMessage(tabId, {
+      const result: ApplyStepResult = await sendTabMessage(tabId, {
         type: 'EXECUTE_APPLY_ON_CURRENT_TAB',
         payload: {
           mode,
@@ -957,12 +1002,19 @@ export default defineBackground(() => {
 
     if (targetRoles?.length) {
       const titleLower = job.title.toLowerCase();
+      const isUntitled = !job.title || titleLower.includes('untitled');
+      const searchKeywords = (state.searchParams?.query || '').toLowerCase();
+      const urlKeywords = decodeURIComponent(job.jobUrl || '').toLowerCase();
+
       const hasMatch = targetRoles.some((role) => {
         const rLower = role.toLowerCase().trim();
         if (!rLower) return false;
         if (titleLower.includes(rLower)) return true;
         const words = rLower.split(/\s+/).filter(Boolean);
         if (words.length > 1 && words.every((w) => titleLower.includes(w))) {
+          return true;
+        }
+        if (isUntitled && (searchKeywords.includes(rLower) || urlKeywords.includes(rLower))) {
           return true;
         }
         return false;
@@ -1064,8 +1116,11 @@ export default defineBackground(() => {
       let tabId: number;
       if (currentTab?.id) {
         tabId = currentTab.id;
-        if (platform === 'wellfound' && currentTab.url?.includes('wellfound.com/jobs')) {
-          await recordLog('info', `Active tab is already on Wellfound jobs page: ${currentTab.url}. Preserving active view.`);
+        if (
+          (platform === 'wellfound' && currentTab.url?.includes('wellfound.com/jobs')) ||
+          (platform === 'linkedin' && (currentTab.url?.includes('linkedin.com/jobs/search') || currentTab.url?.includes('linkedin.com/jobs/search-results')))
+        ) {
+          await recordLog('info', `Active tab is already on ${platform} jobs page: ${currentTab.url}. Preserving active view.`);
         } else {
           await chrome.tabs.update(tabId, { url: searchUrl });
           await waitForTabComplete(tabId);
@@ -1103,13 +1158,16 @@ export default defineBackground(() => {
           if (!isSearchRunning) break;
         }
 
-        // Fetch cards from content script
+        // Fetch cards from content script with generous retries to handle dynamic SPA rendering
         let cardInfo: any = null;
-        for (let attempt = 0; attempt < 4; attempt++) {
+        for (let attempt = 0; attempt < 8; attempt++) {
           try {
-            cardInfo = await chrome.tabs.sendMessage(tabId, { type: 'GET_SEARCH_RESULTS_INFO' } as ExtensionMessage);
+            cardInfo = await sendTabMessage(tabId, { type: 'GET_SEARCH_RESULTS_INFO' } as ExtensionMessage);
             if (cardInfo?.count > 0) break;
           } catch {}
+          if (attempt === 0) {
+            await recordLog('info', `Waiting for job result cards to render on ${platform}...`);
+          }
           await delay(2000);
         }
 
@@ -1133,7 +1191,7 @@ export default defineBackground(() => {
           }
           await recordLog('info', `All currently loaded cards have been processed. Triggering scroll to load more (attempt ${emptyBatchesCount}/3)...`);
           try {
-            await chrome.tabs.sendMessage(tabId, { type: 'PAGINATE_NEXT_PAGE' } as ExtensionMessage);
+            await sendTabMessage(tabId, { type: 'PAGINATE_NEXT_PAGE' } as ExtensionMessage);
           } catch {}
           await delay(3500);
           currentPage++;
@@ -1192,7 +1250,7 @@ export default defineBackground(() => {
           let selectRes: any = null;
           for (let attempt = 0; attempt < 2; attempt++) {
             try {
-              selectRes = await chrome.tabs.sendMessage(tabId, {
+              selectRes = await sendTabMessage(tabId, {
                 type: 'SELECT_SEARCH_RESULT_CARD',
                 payload: { index: card?.index ?? cardIdx },
               } as ExtensionMessage);
@@ -1222,11 +1280,9 @@ export default defineBackground(() => {
           await updateState({ currentJob: job });
 
           // A. Already applied check
-          const alreadyCount = await db.appliedJobs
-            .where({ platform: job.platform, externalJobId: job.externalJobId })
-            .count();
+          const alreadyApplied = await isAlreadyApplied(job.platform, job.externalJobId);
 
-          if (alreadyCount > 0) {
+          if (alreadyApplied) {
             await recordLog('info', `[Card ${cardIdx + 1}] Skipping already applied job: "${job.title}" at ${job.company}`);
             await delay(1500);
             continue;
@@ -1253,7 +1309,7 @@ export default defineBackground(() => {
 
           let applyRes: ApplyStepResult;
           try {
-            applyRes = await chrome.tabs.sendMessage(tabId, {
+            applyRes = await sendTabMessage(tabId, {
               type: 'EXECUTE_APPLY_ON_CURRENT_TAB',
               payload: { mode },
             } as ExtensionMessage);
@@ -1312,7 +1368,7 @@ export default defineBackground(() => {
           await recordLog('info', `Completed page/batch ${currentPage}. Attempting to load next batch...`);
           let pageSuccess = false;
           try {
-            const pageRes = await chrome.tabs.sendMessage(tabId, { type: 'PAGINATE_NEXT_PAGE' } as ExtensionMessage);
+            const pageRes = await sendTabMessage(tabId, { type: 'PAGINATE_NEXT_PAGE' } as ExtensionMessage);
             pageSuccess = !!pageRes?.success;
           } catch {}
 

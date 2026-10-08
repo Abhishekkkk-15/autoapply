@@ -753,6 +753,59 @@ server.tool(
   }
 );
 
+// Tool: autoapply_reload_extension
+server.tool(
+  'autoapply_reload_extension',
+  'Reloads the unpacked Chrome Extension runtime in Google Chrome to load new code changes without browser restart.',
+  {},
+  async () => {
+    try {
+      const result = await callExtension('RELOAD_EXTENSION', {}, 10000);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    } catch (err: any) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Failed to reload extension: ${err.message}` }],
+      };
+    }
+  }
+);
+
+// Tool: autoapply_eval_in_tab
+server.tool(
+  'autoapply_eval_in_tab',
+  'Evaluates JavaScript in the active browser tab via chrome.scripting.executeScript in frame 0, bypassing any iframe issues.',
+  {
+    code: z.string().describe('JavaScript code expression to evaluate in the main frame'),
+    tabId: z.number().optional().describe('Optional tab ID (defaults to active tab)'),
+  },
+  async ({ code, tabId }) => {
+    try {
+      const result = await callExtension('EVAL_IN_TAB', { code, tabId }, 15000);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    } catch (err: any) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Failed to evaluate in tab: ${err.message}` }],
+      };
+    }
+  }
+);
+
 // Connect stdio transport for the coding agent
 async function main() {
   const transport = new StdioServerTransport();

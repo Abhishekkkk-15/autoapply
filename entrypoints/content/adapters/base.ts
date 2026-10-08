@@ -95,9 +95,19 @@ export abstract class JobPlatformAdapter {
     // Check target roles (if user defined any)
     if (targetRoles?.length) {
       const titleLower = job.title.toLowerCase();
-      const hasMatch = targetRoles.some((role) =>
-        titleLower.includes(role.toLowerCase().trim())
-      );
+      const isUntitled = !job.title || titleLower.includes('untitled');
+      const docTitleLower = document.title?.toLowerCase() || '';
+      const urlQueryLower = decodeURIComponent(window.location.search || '').toLowerCase();
+
+      const hasMatch = targetRoles.some((role) => {
+        const rLower = role.toLowerCase().trim();
+        if (!rLower) return false;
+        if (titleLower.includes(rLower)) return true;
+        if (isUntitled && (docTitleLower.includes(rLower) || urlQueryLower.includes(rLower))) {
+          return true;
+        }
+        return false;
+      });
       if (!hasMatch) {
         return {
           allow: false,

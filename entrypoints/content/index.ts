@@ -12,9 +12,14 @@ import { getUserProfile, getAppSettings } from '@/src/lib/storage';
 
 export default defineContentScript({
   matches: ['*://*/*'],
-  allFrames: true,
+  allFrames: false,
   runAt: 'document_idle',
   main() {
+    // Strictly only run in the top window (never in ad/tracking/recaptcha iframes)
+    if (window !== window.top) {
+      return;
+    }
+
     console.log('[AutoApply AI] Content script injected on', window.location.href);
 
     const adapters: JobPlatformAdapter[] = [
@@ -66,6 +71,16 @@ export default defineContentScript({
     // Listen for extension commands
     chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
       const adapter = getActiveAdapter();
+
+      // If we are in a subframe without an active adapter, do not intercept messages
+      if (window !== window.top && !adapter) {
+        return false;
+      }
+
+      // Scraping full page is always top window responsibility
+      if (message.type === 'SCRAPE_CURRENT_PAGE' && window !== window.top) {
+        return false;
+      }
 
       if (message.type === 'CHECK_TAB_PLATFORM') {
         if (!adapter) {
@@ -142,8 +157,13 @@ export default defineContentScript({
           sendResponse({ count: 0, cards: [] });
           return false;
         }
-        const cards = adapter.getSearchResultCards();
-        sendResponse({ count: cards.length, cards });
+        try {
+          const cards = adapter.getSearchResultCards();
+          sendResponse({ count: cards.length, cards });
+        } catch (err: any) {
+          console.error('[AutoApply AI] Error getting search cards:', err);
+          sendResponse({ count: 0, cards: [], error: err.message });
+        }
         return false;
       }
 
@@ -195,11 +215,73 @@ export default defineContentScript({
         (async () => {
           try {
             const currentJob = adapter ? await adapter.parseCurrentJob() : null;
+            let searchCards: any[] = [];
+            let searchCardsError = '';
+            try {
+              searchCards = adapter ? adapter.getSearchResultCards() : [];
+            } catch (e: any) {
+              searchCardsError = e.message;
+            }
+            const rawElementsCount = document.querySelectorAll(
+              'li[data-occludable-job-id], div[data-view-name="job-card"], div.job-card-container, li.jobs-search-results__list-item, li.scaffold-layout__list-item, div.base-card'
+            ).length;
+
+            // Detailed inspection of all elements containing Easy Apply
+            const easyApplyElements = Array.from(document.querySelectorAll('*'))
+              .filter((el) => {
+                const text = el.textContent?.trim().toLowerCase() || '';
+                const aria = el.getAttribute('aria-label')?.toLowerCase() || '';
+                return (text.includes('easy apply') || aria.includes('easy apply')) && el.children.length <= 3;
+              })
+              .map((el) => ({
+                tag: el.tagName,
+                role: el.getAttribute('role'),
+                componentkey: el.getAttribute('componentkey'),
+                ariaLabel: el.getAttribute('aria-label'),
+                className: (el as HTMLElement).className,
+                inSearchResultsMainContent: !!el.closest('[componentkey="SearchResultsMainContent"]'),
+                inJobCardRef: !!el.closest('[componentkey*="job-card-component-ref"]'),
+                inLazyColumn: !!el.closest('[data-testid="lazy-column"]'),
+                lazyColumnAttrs: el.closest('[data-testid="lazy-column"]')?.getAttributeNames().reduce((acc: any, k) => { acc[k] = el.closest('[data-testid="lazy-column"]')?.getAttribute(k); return acc; }, {}),
+                parentChain: (() => {
+                  const chain = [];
+                  let p = el.parentElement;
+                  for (let i = 0; i < 6 && p; i++) {
+                    chain.push({
+                      tag: p.tagName,
+                      role: p.getAttribute('role'),
+                      componentkey: p.getAttribute('componentkey'),
+                      testid: p.getAttribute('data-testid'),
+                      className: (p as HTMLElement).className?.slice(0, 50),
+                    });
+                    p = p.parentElement;
+                  }
+                  return chain;
+                })(),
+              }));
+
+            // Also check for job description container
+            const descCandidates = Array.from(document.querySelectorAll('*'))
+              .filter((el) => el.textContent && el.textContent.length > 300 && !el.closest('[componentkey="SearchResultsMainContent"]'))
+              .slice(0, 5)
+              .map((el) => ({
+                tag: el.tagName,
+                id: el.id,
+                testid: el.getAttribute('data-testid'),
+                componentkey: el.getAttribute('componentkey'),
+                className: (el as HTMLElement).className?.slice(0, 60),
+                textSnippet: el.textContent?.trim().slice(0, 150),
+              }));
+
             sendResponse({
               success: true,
               title: document.title,
               url: window.location.href,
               detectedJob: currentJob,
+              easyApplyElements,
+              descCandidates,
+              searchCardsError,
+              rawElementsCount,
               textContent: document.body.innerText.slice(0, 15000),
               hasForms: document.querySelectorAll('form').length > 0,
             });

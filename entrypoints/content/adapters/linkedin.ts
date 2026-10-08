@@ -29,28 +29,88 @@ export class LinkedInAdapter extends JobPlatformAdapter {
   async parseCurrentJob(): Promise<ScrapedJob | null> {
     try {
       // 1. Title
-      const titleEl = document.querySelector(
-        '.job-details-jobs-unified-top-card__job-title, .jobs-unified-top-card__job-title, h1.t-24, .top-card-layout__title'
-      );
-      const title = titleEl?.textContent?.trim() || 'Untitled Role';
+      let title = '';
+      const titleSelectors = [
+        '.job-details-jobs-unified-top-card__job-title',
+        '.jobs-unified-top-card__job-title',
+        'h2.job-details-jobs-unified-top-card__job-title',
+        '.jobs-details__main-content h1',
+        '.jobs-details__main-content h2',
+        '.job-details-jobs-unified-top-card__content--two-pane h1',
+        '.job-details-jobs-unified-top-card__content--two-pane h2',
+        'h1.t-24',
+        'h2.t-24',
+        'div[data-view-name="job-details-top-card"] h1',
+        'div[data-view-name="job-details-top-card"] h2',
+        'h1.job-title',
+        '.top-card-layout__title',
+        'h1',
+      ];
+      for (const sel of titleSelectors) {
+        const el = document.querySelector<HTMLElement>(sel);
+        const t = el?.textContent?.trim();
+        if (t && t.length > 2 && t.length < 120 && !t.toLowerCase().includes('search') && !t.toLowerCase().includes('status is')) {
+          title = t.split('\n')[0].trim();
+          break;
+        }
+      }
+      if (!title && document.title.includes('|')) {
+        const parts = document.title.split('|').map((p) => p.trim());
+        if (parts[0] && parts[0].length > 2 && !parts[0].toLowerCase().includes('jobs')) {
+          title = parts[0];
+        }
+      }
+      if (!title) title = 'Untitled Role';
 
       // 2. Company
-      const companyEl = document.querySelector(
-        '.job-details-jobs-unified-top-card__company-name, .jobs-unified-top-card__company-name, .topcard__org-name-link'
-      );
-      const company = companyEl?.textContent?.trim() || 'Unknown Company';
+      let company = '';
+      const companySelectors = [
+        '.job-details-jobs-unified-top-card__company-name',
+        '.jobs-unified-top-card__company-name',
+        '.job-details-jobs-unified-top-card__primary-description-container a[href*="/company/"]',
+        'div[data-view-name="job-details-top-card"] a[href*="/company/"]',
+        'a[href*="/company/"]',
+        '.topcard__org-name-link',
+        '.jobs-unified-top-card__subtitle-primary-grouping a',
+      ];
+      for (const sel of companySelectors) {
+        const el = document.querySelector<HTMLElement>(sel);
+        const c = el?.textContent?.trim();
+        if (c && c.length > 1 && c.length < 80) {
+          company = c.split('\n')[0].trim();
+          break;
+        }
+      }
+      if (!company && document.title.includes('|')) {
+        const parts = document.title.split('|').map((p) => p.trim());
+        if (parts[1] && parts[1].length > 1 && !parts[1].toLowerCase().includes('linkedin')) {
+          company = parts[1];
+        }
+      }
+      if (!company) company = 'Unknown Company';
 
       // 3. Location
-      const locationEl = document.querySelector(
-        '.job-details-jobs-unified-top-card__primary-description-container, .jobs-unified-top-card__bullet, .topcard__flavor--bullet'
+      const locationEl = document.querySelector<HTMLElement>(
+        '.job-details-jobs-unified-top-card__primary-description-container, .jobs-unified-top-card__bullet, .topcard__flavor--bullet, .jobs-unified-top-card__workplace-type'
       );
       const location = locationEl?.textContent?.trim().replace(/\s+/g, ' ') || 'Remote';
 
       // 4. Description
-      const descEl = document.querySelector(
-        '#job-details, .jobs-description-content__text, .jobs-description__content'
+      const descEl = document.querySelector<HTMLElement>(
+        '#job-details, div[data-view-name="job-details-description"], .jobs-description-content__text, .jobs-description__content, .jobs-description, .jobs-box__html-content, article'
       );
-      const jobDescription = descEl?.textContent?.trim() || '';
+      let jobDescription = descEl?.textContent?.trim() || '';
+      if (!jobDescription) {
+        const detailCandidates = Array.from(document.querySelectorAll<HTMLElement>('div, section, article'))
+          .filter((el) => {
+            if (el.closest('[componentkey="SearchResultsMainContent"]') || el.closest('[componentkey*="job-card-component-ref"]')) return false;
+            const t = el.textContent || '';
+            return t.length > 300 && (t.includes('About the job') || t.includes('Requirements') || t.includes('Qualifications') || t.includes('Responsibilities') || t.includes('skills'));
+          });
+        if (detailCandidates.length > 0) {
+          jobDescription = detailCandidates[0].innerText?.slice(0, 8000).trim() || '';
+        }
+      }
 
       // 5. External Job ID from URL or DOM
       const urlParams = new URLSearchParams(window.location.search);
@@ -125,18 +185,80 @@ export class LinkedInAdapter extends JobPlatformAdapter {
   }
 
   findEasyApplyButton(): HTMLElement | null {
-    const buttons = Array.from(
-      document.querySelectorAll<HTMLElement>(
-        'button.jobs-apply-button, button[aria-label*="Easy Apply"], .jobs-s-apply button, button.jobs-apply-button--top-card'
-      )
-    );
-    for (const b of buttons) {
-      const text = b.textContent?.trim().toLowerCase() || '';
-      const aria = b.getAttribute('aria-label')?.toLowerCase() || '';
-      if (text.includes('easy apply') || aria.includes('easy apply')) {
-        return b;
+    // 1. Check known specific apply button selectors first
+    const knownSelectors = [
+      '.jobs-apply-button',
+      'button.jobs-apply-button',
+      'button[aria-label*="Easy Apply" i]',
+      'button[aria-label*="easy apply" i]',
+      '.jobs-apply-button--top-card button',
+      'div[data-view-name="job-details-top-card"] button',
+    ];
+    for (const sel of knownSelectors) {
+      const candidates = Array.from(document.querySelectorAll<HTMLElement>(sel));
+      for (const b of candidates) {
+        if (
+          b.closest('[componentkey="SearchResultsMainContent"]') ||
+          b.closest('[componentkey*="job-card-component-ref"]') ||
+          b.closest('.scaffold-layout__list') ||
+          b.closest('.jobs-search-results-list')
+        ) {
+          continue;
+        }
+        const text = b.textContent?.trim().toLowerCase() || '';
+        const aria = b.getAttribute('aria-label')?.toLowerCase() || '';
+        if (text.includes('easy apply') || aria.includes('easy apply')) {
+          return b;
+        }
       }
     }
+
+    // 2. Query all clickable elements outside the left search results list
+    const allButtons = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        'button, a[role="button"], div[role="button"], [role="button"]'
+      )
+    );
+
+    const applyButtons = allButtons.filter((b) => {
+      // Strictly exclude left search results cards and list container
+      if (b.closest('[componentkey="SearchResultsMainContent"]')) return false;
+      if (b.closest('[componentkey*="job-card-component-ref"]')) return false;
+      if (b.closest('.scaffold-layout__list')) return false;
+      if (b.closest('.jobs-search-results-list')) return false;
+
+      const text = b.textContent?.trim().toLowerCase() || '';
+      const aria = b.getAttribute('aria-label')?.toLowerCase() || '';
+      return text.includes('easy apply') || aria.includes('easy apply');
+    });
+
+    if (applyButtons.length > 0) {
+      return applyButtons[0];
+    }
+
+    // 3. Fallback: Any element whose text is strictly 'Easy Apply' outside search list
+    const textNodes = Array.from(document.querySelectorAll<HTMLElement>('span, p, div, button'))
+      .filter((el) => {
+        if (
+          el.closest('[componentkey="SearchResultsMainContent"]') ||
+          el.closest('[componentkey*="job-card-component-ref"]') ||
+          el.closest('.scaffold-layout__list') ||
+          el.closest('.jobs-search-results-list')
+        ) {
+          return false;
+        }
+        const text = el.textContent?.trim().toLowerCase() || '';
+        return text === 'easy apply';
+      });
+
+    for (const tn of textNodes) {
+      const btn =
+        tn.closest<HTMLElement>('button, [role="button"]') ||
+        tn.parentElement?.closest<HTMLElement>('button, [role="button"]') ||
+        tn;
+      return btn;
+    }
+
     return null;
   }
 
@@ -207,12 +329,21 @@ export class LinkedInAdapter extends JobPlatformAdapter {
         };
       }
 
+      applyBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      await randomDelay(300, 600);
       await simulateClick(applyBtn);
-      await randomDelay(1200, 2000);
-      modal = await waitForSelector<HTMLElement>(
-        '.jobs-easy-apply-modal, div[data-view-name="job-details-easy-apply-modal"], div.artdeco-modal',
-        5000
-      );
+
+      try {
+        applyBtn.click();
+      } catch {}
+
+      // Poll for modal element to mount
+      const startWait = Date.now();
+      while (Date.now() - startWait < 8000) {
+        modal = this.getModalElement();
+        if (modal) break;
+        await randomDelay(300, 500);
+      }
 
       if (!modal) {
         return {
@@ -452,19 +583,74 @@ export class LinkedInAdapter extends JobPlatformAdapter {
   }
 
   getModalElement(): HTMLElement | null {
+    // 1. Standard known modal selectors
     const primary = document.querySelector<HTMLElement>(
-      '.jobs-easy-apply-modal, div[data-view-name="job-details-easy-apply-modal"], div[data-easy-apply-modal], .artdeco-modal'
+      '.jobs-easy-apply-modal, div[data-view-name="job-details-easy-apply-modal"], div[data-easy-apply-modal], .artdeco-modal, div[data-test-modal], [role="dialog"], [aria-modal="true"]'
     );
     if (primary) return primary;
 
-    const dialogs = Array.from(document.querySelectorAll<HTMLElement>('div[role="dialog"]'));
-    return (
-      dialogs.find((d) =>
-        d.querySelector(
-          '.jobs-easy-apply-footer, button[data-easy-apply-next-button], .jobs-easy-apply-form-section__grouping, [data-test-modal-id]'
-        )
-      ) || null
-    );
+    // 2. Any container containing an Easy Apply action button (Next, Review, Submit) outside the search list
+    const actionBtn = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"]')).find((b) => {
+      if (b.closest('[componentkey="SearchResultsMainContent"]')) return false;
+      const txt = b.textContent?.trim().toLowerCase() || '';
+      const aria = b.getAttribute('aria-label')?.toLowerCase() || '';
+      return (
+        txt === 'next' ||
+        aria.includes('continue to next') ||
+        txt === 'review' ||
+        aria.includes('review your application') ||
+        txt.includes('submit application') ||
+        aria.includes('submit application')
+      );
+    });
+
+    if (actionBtn) {
+      // Traverse up to find dialog or modal container
+      let curr: HTMLElement | null = actionBtn;
+      for (let i = 0; i < 15 && curr && curr !== document.body; i++) {
+        const role = curr.getAttribute('role');
+        const ariaModal = curr.getAttribute('aria-modal');
+        const comp = curr.getAttribute('componentkey')?.toLowerCase() || '';
+        const cls = curr.className?.toLowerCase() || '';
+        if (
+          role === 'dialog' ||
+          ariaModal === 'true' ||
+          comp.includes('modal') ||
+          comp.includes('dialog') ||
+          cls.includes('modal') ||
+          cls.includes('dialog')
+        ) {
+          return curr;
+        }
+        curr = curr.parentElement;
+      }
+      // If no explicit dialog attribute, find container with 'Apply to' or 'pages' or 'Contact info'
+      curr = actionBtn;
+      let modalCandidate: HTMLElement | null = null;
+      for (let i = 0; i < 10 && curr && curr !== document.body; i++) {
+        const text = curr.textContent || '';
+        if (text.includes('Apply to') || text.includes('Contact info') || text.includes('pages')) {
+          modalCandidate = curr;
+        }
+        curr = curr.parentElement;
+      }
+      if (modalCandidate) return modalCandidate;
+    }
+
+    // 3. Any element on page with text "Apply to" and form/inputs
+    const applyToCandidate = Array.from(document.querySelectorAll<HTMLElement>('div, section')).find((el) => {
+      if (el.closest('[componentkey="SearchResultsMainContent"]')) return false;
+      const text = el.textContent || '';
+      return (
+        text.includes('Apply to') &&
+        (text.includes('pages') || text.includes('Contact info')) &&
+        el.querySelectorAll('input, button').length >= 3 &&
+        el.children.length < 20
+      );
+    });
+    if (applyToCandidate) return applyToCandidate;
+
+    return null;
   }
 
   findNextButton(modal: HTMLElement): HTMLElement | null {
@@ -561,7 +747,7 @@ export class LinkedInAdapter extends JobPlatformAdapter {
     // 1. Text Inputs and Number Inputs
     const textInputs = Array.from(
       modal.querySelectorAll<HTMLInputElement>(
-        'input[type="text"], input[type="number"], input:not([type])'
+        'input[type="text"], input[type="number"], input[type="tel"], input[type="email"], input:not([type])'
       )
     );
 
@@ -746,67 +932,89 @@ export class LinkedInAdapter extends JobPlatformAdapter {
   }
 
   getSearchResultCards(): SearchCardInfo[] {
-    const rawCards = Array.from(
-      document.querySelectorAll<HTMLElement>(
-        'li.jobs-search-results__list-item, .scaffold-layout__list-container li, div.job-card-container, div[data-job-id]'
-      )
-    );
-
     const cards: SearchCardInfo[] = [];
     const seenIds = new Set<string>();
 
-    for (let i = 0; i < rawCards.length; i++) {
-      const card = rawCards[i];
-      const titleEl = card.querySelector(
-        '.job-card-list__title, .artdeco-entity-lockup__title, a[href*="/jobs/view/"], strong'
-      );
-      const title = titleEl?.textContent?.trim() || '';
-      if (!title) continue;
+    // 1. Target modern LinkedIn 2026 atomic UI cards via componentkey and lazy-column
+    const modernCards = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '[componentkey*="job-card-component-ref-"][role="button"], [componentkey*="job-card-component-ref-"]'
+      )
+    );
 
-      const compEl = card.querySelector(
-        '.job-card-container__primary-description, .artdeco-entity-lockup__subtitle, .job-card-container__company-name'
-      );
-      const company = compEl?.textContent?.trim() || '';
+    // 2. Query legacy selectors as fallback
+    const legacyCards = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        'li[data-occludable-job-id], div[data-view-name="job-card"], div.job-card-container, li.jobs-search-results__list-item'
+      )
+    );
 
-      let id =
-        card.getAttribute('data-occludable-job-id') ||
-        card.getAttribute('data-job-id') ||
-        card.querySelector('[data-job-id]')?.getAttribute('data-job-id') ||
-        '';
+    const candidateElements = modernCards.length > 0 ? modernCards : legacyCards;
+
+    for (const card of candidateElements) {
+      const cardText = card.textContent || '';
+      if (!cardText || cardText.length < 5) continue;
+
+      // Extract job ID
+      let id = '';
+      const compKey = card.getAttribute('componentkey') || '';
+      const mKey = compKey.match(/\d{6,}/);
+      if (mKey) id = mKey[0];
 
       if (!id) {
-        const link = card.querySelector<HTMLAnchorElement>('a[href*="/jobs/view/"]');
+        const attrId = card.getAttribute('data-occludable-job-id') || card.getAttribute('data-job-id') || '';
+        const mAttr = attrId.match(/\d{6,}/);
+        if (mAttr) id = mAttr[0];
+      }
+
+      if (!id) {
+        const link = card.querySelector<HTMLAnchorElement>('a[href*="currentJobId="], a[href*="/jobs/view/"]');
         if (link?.href) {
-          const match = link.href.match(/\/jobs\/view\/(\d+)/);
-          if (match) id = match[1];
-        }
-      }
-      if (!id) {
-        id = `card_${i}_${title}_${company}`;
-      }
-
-      if (seenIds.has(id)) continue;
-      seenIds.add(id);
-
-      const text = card.textContent?.toLowerCase() || '';
-      const isEasyApply = text.includes('easy apply');
-
-      // Extract card posting date text if present
-      const timeEl = card.querySelector('time, .job-card-container__footer-item, [class*="footer-item"]');
-      let cardPostedDate = timeEl?.textContent?.trim() || '';
-      if (!cardPostedDate) {
-        const spans = Array.from(card.querySelectorAll('span, time'));
-        for (const s of spans) {
-          const st = s.textContent?.trim() || '';
-          if (/(?:ago|today|yesterday|\d+[wdm])/i.test(st) && st.length < 35 && !st.includes('$')) {
-            cardPostedDate = st;
-            break;
+          const m1 = link.href.match(/currentJobId=(\d+)/);
+          if (m1) id = m1[1];
+          if (!id) {
+            const m2 = link.href.match(/\/jobs\/view\/(\d+)/);
+            if (m2) id = m2[1];
           }
         }
       }
 
+      // Extract title and company from text lines
+      const rawLines = cardText
+        .split('\n')
+        .map((l) => l.trim().replace(/^selected,\s*/i, '').replace(/status is\s+/i, ''))
+        .filter((l) => l && l.length > 1 && !/^(more|about|help center|feedback)$/i.test(l));
+
+      const uniqueLines = rawLines.filter((l, idx) => idx === 0 || l !== rawLines[idx - 1]);
+      const title = uniqueLines[0] || '';
+      if (!title || title.length < 2) continue;
+
+      let company = uniqueLines[1] || 'Company';
+      if (/^(india|remote|united states|hybrid|posted|applied|viewed)/i.test(company) && uniqueLines[2]) {
+        company = uniqueLines[2];
+      }
+
+      if (!id) {
+        id = `card_${title}_${company}`;
+      }
+
+      // Deduplicate so duplicate parent/child elements never produce duplicate entries
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+
+      const isEasyApply = cardText.toLowerCase().includes('easy apply');
+
+      // Posting date
+      let cardPostedDate = '';
+      for (const line of uniqueLines) {
+        if (/(?:ago|today|yesterday|\d+[wdm])/i.test(line) && line.length < 35 && !line.includes('$')) {
+          cardPostedDate = line;
+          break;
+        }
+      }
+
       cards.push({
-        index: i,
+        index: cards.length,
         id,
         title,
         company,
@@ -819,36 +1027,68 @@ export class LinkedInAdapter extends JobPlatformAdapter {
   }
 
   async selectSearchResultCard(index: number): Promise<{ success: boolean; job?: ScrapedJob }> {
-    const rawCards = Array.from(
-      document.querySelectorAll<HTMLElement>(
-        'li.jobs-search-results__list-item, .scaffold-layout__list-container li, div.job-card-container, div[data-job-id]'
-      )
-    );
-
-    const card = rawCards[index];
-    if (!card) {
+    const cards = this.getSearchResultCards();
+    const target = cards[index];
+    if (!target) {
       return { success: false };
     }
 
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Find the clickable card element
+    let cardEl: HTMLElement | null = null;
+    if (target.id && /^\d+$/.test(target.id)) {
+      cardEl =
+        document.querySelector<HTMLElement>(`[componentkey*="${target.id}"][role="button"]`) ||
+        document.querySelector<HTMLElement>(`[componentkey*="${target.id}"]`) ||
+        document.querySelector<HTMLElement>(`[data-occludable-job-id*="${target.id}"]`) ||
+        document.querySelector<HTMLElement>(`a[href*="${target.id}"]`);
+    }
+
+    if (!cardEl) {
+      const candidates = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '[componentkey*="job-card-component-ref-"][role="button"], [componentkey*="job-card-component-ref-"]'
+        )
+      );
+      for (const el of candidates) {
+        if (target.title && el.textContent?.toLowerCase().includes(target.title.toLowerCase())) {
+          cardEl = el;
+          break;
+        }
+      }
+    }
+
+    if (!cardEl) {
+      return { success: false };
+    }
+
+    cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
     await randomDelay(300, 600);
 
-    const clickable =
-      card.querySelector<HTMLElement>(
-        'a.job-card-list__title, a.job-card-container__link, a[href*="/jobs/view/"], div.job-card-container'
-      ) || card;
-
-    await simulateClick(clickable);
+    await simulateClick(cardEl);
 
     // Wait for the detail view on the right pane to update
-    await randomDelay(1800, 2600);
+    await randomDelay(2000, 3000);
 
     await waitForSelector(
-      '.job-details-jobs-unified-top-card__job-title, .jobs-unified-top-card__job-title, #job-details',
-      4000
+      '.job-details-jobs-unified-top-card__job-title, .jobs-unified-top-card__job-title, #job-details, div[data-view-name="job-details-top-card"], h1, h2',
+      5000
     );
 
-    const job = await this.parseCurrentJob();
+    let job = await this.parseCurrentJob();
+    if (job) {
+      if ((!job.title || job.title === 'Untitled Role') && target.title) {
+        job.title = target.title;
+      }
+      if ((!job.company || job.company === 'Unknown Company') && target.company) {
+        job.company = target.company;
+      }
+      if (target.id && (!job.externalJobId || job.externalJobId.startsWith('li_'))) {
+        job.externalJobId = target.id;
+      }
+      if (target.isEasyApply && !job.canEasyApply) {
+        job.canEasyApply = true;
+      }
+    }
     return {
       success: !!job,
       job: job || undefined,

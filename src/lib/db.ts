@@ -134,10 +134,11 @@ export async function isAlreadyApplied(
   externalJobId: string
 ): Promise<boolean> {
   if (!externalJobId) return false;
-  const count = await db.appliedJobs
+  const found = await db.appliedJobs
     .where({ platform, externalJobId })
-    .count();
-  return count > 0;
+    .first();
+  if (!found) return false;
+  return found.status === 'APPLIED' || found.status === 'PENDING_APPROVAL';
 }
 
 export async function addContact(contact: StoredContact): Promise<number> {

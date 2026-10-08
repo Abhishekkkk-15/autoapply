@@ -224,7 +224,7 @@ export class LinkedInAdapter extends JobPlatformAdapter {
 
     // Modal is open, let's parse job context for AI answering
     const job = await this.parseCurrentJob();
-    const jobContext = `${job?.title || ''} at ${job?.company || ''}. ${job?.jobDescription?.slice(0, 1500) || ''}`;
+    const jobContext = `${job?.title || ''} at ${job?.company || ''}. ${job?.jobDescription || ''}`;
 
     // Loop through modal steps (max 10 steps to prevent infinite loops)
     let stepCount = 0;

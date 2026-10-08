@@ -216,19 +216,20 @@ Output a JSON object with:
   "reasoning": "brief explanation"
 }
 
-STRICT CONSTRAINTS:
-1. If the question asks for years of experience with a technology or skill, return ONLY an integer as a string (e.g. "4", "5", "6"). If the candidate has worked with it in their resume, estimate honestly. If unmentioned but closely related, return "2" or "3". If totally unrelated, return "1" or "2".
+STRICT CONSTRAINTS & FACTUAL TRUTH:
+1. Base years of experience strictly on the candidate's actual background and total years of professional experience (${profile.yearsOfExperience} years). If a technology is unmentioned in the candidate's resume, do NOT fabricate experience—return "0" or an honest assessment based on actual skills. NEVER fabricate experience.
 2. If asking for salary or compensation, return the candidate's expected salary numeric: "${profile.expectedSalaryNumeric}".
 3. If asking for notice period, return "${profile.noticePeriodDays}".
 4. If options are provided (for radio or select), the "answer" MUST EXACTLY match one of the options in the options list.
 5. For sponsorship/visa questions: Candidate requires sponsorship = ${profile.workAuthorization.requiresSponsorship}, is authorized = ${profile.workAuthorization.authorizedInTargetCountry}.
-6. For citizenship: US Citizen = ${profile.workAuthorization.usCitizen}.`;
+6. For citizenship: US Citizen = ${profile.workAuthorization.usCitizen}.
+7. NEVER invent, hallucinate, or fabricate ANY qualifications, degrees, metrics, or experiences not explicitly stated in the candidate's profile.`;
 
     const userPrompt = `Form Question Label: "${fieldLabel}"
 Input Type: "${fieldType}"
 Available Options: ${JSON.stringify(options)}
 Job Context:
-${jobContext.slice(0, 1000)}
+${jobContext}
 
 Candidate Profile Summary:
 Name: ${profile.fullName}
@@ -236,7 +237,7 @@ Experience: ${profile.yearsOfExperience} years
 Notice Period: ${profile.noticePeriodDays} days
 Salary Expectation: ${profile.expectedSalaryNumeric} ${profile.currency}
 Resume:
-${profile.resumeMarkdown.slice(0, 2000)}`;
+${profile.resumeMarkdown}`;
 
     const result = await callLLMJson<FormAnswerResult>(systemPrompt, userPrompt, config);
     if (result && typeof result.answer === 'string') {
@@ -387,13 +388,20 @@ export async function generatePitchAndLetter(
   config?: LLMConfig
 ): Promise<PitchAndLetterResult> {
   try {
-    const systemPrompt = `You are a world-class executive career coach and tech copywriter.
+    const systemPrompt = `You are a world-class tech career advisor and executive copywriter representing a candidate for a job application.
 Generate:
-1. "coverLetter": A bespoke 3-paragraph cover letter tailored to the job description and candidate background.
-   - Paragraph 1: Passionate hook, matching the candidate's core strengths directly to the role (${job.title} at ${job.company}).
-   - Paragraph 2: Highlighting specific matching technical stack, architecture wins, and measurable impact.
-   - Paragraph 3: Forward-looking closing paragraph with clear call to action and enthusiasm.
-2. "pitchNote": A concise ~150-word high-impact pitch note answering "Why are you interested in this role?" for Wellfound/AngelList or LinkedIn.
+1. "coverLetter": A tailored 3-paragraph cover letter strictly grounded in the candidate's verified experience and the full job description.
+   - Paragraph 1: Direct hook connecting the candidate's background to ${job.company}'s specific mission/product and the ${job.title} role.
+   - Paragraph 2: Core technical capabilities, architecture decisions, and real past projects from the candidate's resume that directly match the job requirements.
+   - Paragraph 3: Professional closing expressing enthusiasm and readiness to contribute.
+2. "pitchNote": A concise ~120-150 word high-impact pitch note answering "Why are you interested in this role?" for Wellfound/AngelList or recruiter notes.
+
+CRITICAL TRUTH & ANTI-HALLUCINATION DIRECTIVES:
+- ZERO FAKE METRICS / ZERO FABRICATED ACHIEVEMENTS: You MUST strictly adhere to the facts, skills, technologies, projects, and accomplishments explicitly present in the candidate's resume.
+- If the candidate's resume does NOT state a quantitative metric, percentage, or specific achievement (e.g. "% latency reduction", "X million users", "$Y revenue"), DO NOT INVENT, ASSUME, OR ADD ANY METRICS.
+- NEVER invent degrees, previous employers, awards, patents, or certifications not explicitly documented in the candidate's resume.
+- NEVER generate fake, exaggerated, or fabricated information of any kind.
+- Speak with genuine technical credibility about the candidate's real stack, architecture decisions, and real projects.
 
 Output JSON:
 {
@@ -406,8 +414,8 @@ Company: ${job.company}
 Location: ${job.location}
 Platform: ${job.platform}
 
-Job Description:
-${job.jobDescription.slice(0, 3000)}
+Complete Scraped Job Description & Details:
+${job.jobDescription}
 
 Candidate Profile:
 Name: ${profile.fullName}
@@ -417,8 +425,8 @@ Portfolio: ${profile.portfolioUrl}
 GitHub: ${profile.githubUrl}
 LinkedIn: ${profile.linkedinUrl}
 Years of Experience: ${profile.yearsOfExperience}
-Resume Details:
-${profile.resumeMarkdown.slice(0, 2500)}`;
+Full Resume:
+${profile.resumeMarkdown}`;
 
     const res = await callLLMJson<PitchAndLetterResult>(systemPrompt, userPrompt, config);
     if (res.coverLetter && res.pitchNote) {
@@ -484,9 +492,14 @@ Generate:
 1. "emailSubject": A high-converting subject line (e.g., "${job.title} inquiry - ${candidateName}")
 2. "coldEmail": A 3-paragraph punchy cold email with a clear Call to Action (CTA).
    - Paragraph 1: Enthusiastic personalized introduction addressing ${recipientName} regarding the ${job.title} role at ${job.company}.
-   - Paragraph 2: Core proof points highlighting relevant technical stack and past project outcomes.
+   - Paragraph 2: Core proof points highlighting relevant technical stack and past project outcomes verified from the candidate's resume.
    - Paragraph 3: Low-friction CTA inviting a brief 10-minute introductory sync.
 3. "linkedinConnectionNote": A strictly under 300 character LinkedIn connection request note customized for ${recipientName}.
+
+CRITICAL TRUTH & ANTI-HALLUCINATION DIRECTIVES:
+- NEVER fabricate, invent, or assume any metrics, percentages, numbers, or achievements not explicitly stated in the candidate's resume.
+- Only reference real technologies, architectures, and projects that exist in the candidate's profile.
+- If the candidate's resume does not contain a quantitative metric, DO NOT add one.
 
 Output JSON:
 {
@@ -498,14 +511,14 @@ Output JSON:
     const userPrompt = `Job Title: ${job.title}
 Company: ${job.company}
 Recipient Name: ${recipientName}
-Job Description Summary:
-${job.jobDescription.slice(0, 2000)}
+Complete Job Description & Requirements:
+${job.jobDescription}
 
 Candidate Profile:
 Name: ${candidateName}
 Experience: ${profile.yearsOfExperience || 0} years
-Resume Highlights:
-${profile.resumeMarkdown.slice(0, 1500)}`;
+Full Resume:
+${profile.resumeMarkdown}`;
 
     const res = await callLLMJson<ColdOutreachResult>(systemPrompt, userPrompt, config);
     if (res.coldEmail && res.emailSubject && res.linkedinConnectionNote) {

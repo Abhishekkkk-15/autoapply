@@ -76,73 +76,153 @@ export class WellfoundAdapter extends JobPlatformAdapter {
     return 'Startup';
   }
 
-  async parseCurrentJob(): Promise<ScrapedJob | null> {
+  cleanJobTitle(raw: string): string {
+    if (!raw) return 'Software Engineer';
+    let cleaned = raw.replace(/\r/g, '').trim();
+    const lines = cleaned.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lines.length > 0) {
+      cleaned = lines[0];
+    }
+    cleaned = cleaned.replace(/(?:Onsite or remote|Remote only|Remote|In office|Hybrid|Everywhere|India|Bengaluru|Bangalore|Mumbai|Pune|Delhi)[\s\S]*/i, '');
+    cleaned = cleaned.replace(/(?:₹|\$|\d+L|\d+k|No equity|\d+%\s*–\s*\d+%)[\s\S]*/i, '');
+    cleaned = cleaned.replace(/(?:Recruiter recently active|Posted\s+.*|icn_.*)[\s\S]*/i, '');
+    cleaned = cleaned.replace(/^[\s\-–—|•]+|[\s\-–—|•]+$/g, '');
+    cleaned = cleaned.replace(/\s+/g, ' ').trim();
+    return cleaned || lines[0] || 'Software Engineer';
+  }
+
+  extractFullJobDetails(card?: HTMLElement): ScrapedJob | null {
     try {
-      const isStandaloneJobPage = !!window.location.pathname.match(/\/jobs\/(\d+)/);
-      if (!isStandaloneJobPage && this.selectedJob) {
-        return this.selectedJob;
-      }
+      // 1. Details container (drawer, modal dialog, or main page)
+      const detailsContainer =
+        document.querySelector<HTMLElement>(
+          '[data-test="JobDetailModal"], div[role="dialog"], div[aria-modal="true"], aside, div[class*="drawer"], div[class*="sheet"], div[class*="JobDetail"], [data-test="JobListing"]'
+        ) ||
+        document.querySelector<HTMLElement>('main') ||
+        document.body;
 
-      const modal = this.findApplyModal();
-      let title = '';
-      let company = '';
-
-      if (modal) {
-        const modalTitle = modal.querySelector<HTMLElement>(
-          '[data-test="JobTitle"], h2, h3, .styles_title__2_jV3'
+      // 2. Clean Title
+      let rawTitle = '';
+      if (detailsContainer && detailsContainer !== document.body) {
+        const titleEl = detailsContainer.querySelector<HTMLElement>(
+          '[data-test="JobTitle"], h1, h2, .styles_title__2_jV3'
         );
-        if (modalTitle?.textContent?.trim()) {
-          const t = modalTitle.textContent.trim();
-          if (!t.toLowerCase().includes('search for jobs') && !t.toLowerCase().startsWith('jobs in')) {
-            title = t;
-          }
-        }
-        company = this.extractCompanyName(modal);
-      }
-
-      if (!title) {
-        const titleCandidates = Array.from(
-          document.querySelectorAll<HTMLElement>(
-            '[data-test="JobTitle"], .styles_title__2_jV3, h1[class*="title"], h1, .text-xl.font-semibold'
-          )
-        );
-        for (const el of titleCandidates) {
-          const text = el.textContent?.trim() || '';
-          if (
-            text &&
-            !text.toLowerCase().includes('search for jobs') &&
-            !text.toLowerCase().startsWith('jobs in') &&
-            !text.toLowerCase().includes('find startup jobs')
-          ) {
-            title = text;
-            break;
-          }
+        if (titleEl?.textContent?.trim()) {
+          rawTitle = titleEl.textContent.trim();
         }
       }
-      if (!title) title = 'Software Engineer';
+      if (!rawTitle && card) {
+        const cardTitleEl = card.querySelector<HTMLElement>(
+          '[data-test="JobTitle"], a[href*="/jobs/"], .styles_title__2_jV3, span[class*="title"], h3, h4'
+        );
+        rawTitle = cardTitleEl?.textContent?.trim() || '';
+      }
+      if (!rawTitle) {
+        const docTitle = document.querySelector<HTMLElement>(
+          '[data-test="JobTitle"], h1[class*="title"], h1, .text-xl.font-semibold'
+        );
+        rawTitle = docTitle?.textContent?.trim() || '';
+      }
+      const title = this.cleanJobTitle(rawTitle);
 
-      if (!company || company === 'Startup') {
-        company = this.extractCompanyName(document);
+      // 3. Clean Company Name
+      const startupContainer = card
+        ? card.closest<HTMLElement>('[data-test="StartupResult"], div[class*="styles_result__"]') || card
+        : detailsContainer;
+      const company = this.extractCompanyName(startupContainer || document);
+
+      // 4. Location
+      let location = 'Remote';
+      const locEl =
+        detailsContainer?.querySelector<HTMLElement>(
+          '[data-test="JobLocation"], .styles_location__3B, .text-sm.text-neutral-500'
+        ) ||
+        card?.querySelector<HTMLElement>(
+          '[data-test="JobLocation"], .styles_location__3B, span[class*="location"], .text-sm.text-neutral-500'
+        );
+      if (locEl?.textContent?.trim()) {
+        location = locEl.textContent.trim();
       }
 
-      const locationEl =
-        modal?.querySelector('[data-test="JobLocation"], .styles_location__3B, .text-sm.text-neutral-500') ||
-        document.querySelector('[data-test="JobLocation"], .styles_location__3B, .text-sm.text-neutral-500');
-      const location = locationEl?.textContent?.trim() || 'Remote';
+      // 5. Complete, Un-Cut Job Description & Details
+      const descSections: string[] = [];
 
-      const descEl = document.querySelector(
-        '[data-test="JobDescription"], .styles_description__3w17, div[class*="description"]'
+      // A. Company Description / Overview
+      const companyDescEl = detailsContainer?.querySelector<HTMLElement>(
+        '[data-test="CompanyDescription"], div[class*="styles_aboutCompany__"], div[class*="aboutCompany"]'
       );
-      const jobDescription = descEl?.textContent?.trim() || '';
+      if (companyDescEl?.textContent?.trim()) {
+        descSections.push(`About ${company}:\n${companyDescEl.textContent.trim()}`);
+      }
 
+      // B. Dedicated Job Description Containers
+      const descEls = Array.from(
+        (detailsContainer || document).querySelectorAll<HTMLElement>(
+          '[data-test="JobDescription"], .styles_description__3w17, div[class*="styles_description__"], div[class*="description"], div[class*="styles_body__"], div[class*="jobDescription"], section[class*="description"]'
+        )
+      );
+
+      const seenTexts = new Set<string>();
+      for (const el of descEls) {
+        const txt = el.textContent?.trim();
+        if (txt && txt.length > 40 && !seenTexts.has(txt)) {
+          seenTexts.add(txt);
+          descSections.push(txt);
+        }
+      }
+
+      // C. Fallback: Full text of the drawer container
+      if (descSections.length === 0 || descSections.join('\n\n').length < 150) {
+        if (detailsContainer && detailsContainer !== document.body) {
+          const clone = detailsContainer.cloneNode(true) as HTMLElement;
+          clone
+            .querySelectorAll(
+              'button, svg, nav, footer, script, style, [data-test="ReportButton"], [data-test="SaveButton"], [data-test="CloseButton"]'
+            )
+            .forEach((n) => n.remove());
+          const fullText = clone.textContent?.replace(/\s+/g, ' ').trim();
+          if (fullText && fullText.length > 50) {
+            descSections.push(fullText);
+          }
+        }
+      }
+
+      // D. Skills tags
+      const skillEls = Array.from(
+        (detailsContainer || document).querySelectorAll<HTMLElement>(
+          '[data-test="JobSkills"] span, div[class*="styles_skills__"] span, div[class*="skills"] span, span[class*="styles_tag__"]'
+        )
+      );
+      const skills = Array.from(
+        new Set(
+          skillEls
+            .map((s) => s.textContent?.trim())
+            .filter((s): s is string => !!s && s.length > 1 && s.length < 40)
+        )
+      );
+      if (skills.length > 0) {
+        descSections.push(`Required/Desired Skills: ${skills.join(', ')}`);
+      }
+
+      let jobDescription = descSections.join('\n\n').trim();
+      if (!jobDescription) {
+        jobDescription = `${title} at ${company}. Location: ${location}`;
+      }
+
+      // 6. External Job ID
       let externalJobId = '';
       const match = window.location.pathname.match(/\/jobs\/(\d+)/);
       if (match) {
         externalJobId = match[1];
-      } else if (modal) {
-        const link = modal.querySelector<HTMLAnchorElement>('a[href*="/jobs/"]');
+      } else {
+        const link =
+          detailsContainer?.querySelector<HTMLAnchorElement>('a[href*="/jobs/"]') ||
+          card?.querySelector<HTMLAnchorElement>('a[href*="/jobs/"]');
         const m = link?.href?.match(/\/jobs\/(\d+)/);
         if (m) externalJobId = m[1];
+      }
+      if (!externalJobId && card?.getAttribute('data-job-id')) {
+        externalJobId = card.getAttribute('data-job-id')!;
       }
       if (!externalJobId && this.selectedJob?.externalJobId) {
         externalJobId = this.selectedJob.externalJobId;
@@ -151,12 +231,28 @@ export class WellfoundAdapter extends JobPlatformAdapter {
         externalJobId = `wf_${Math.abs(hash(title + '_' + company))}`;
       }
 
+      // 7. Contacts & Recruiter
       const contacts = extractContactsFromJob(
         jobDescription,
-        document.querySelector('[data-test="RecruiterCard"], div[class*="recruiter"]') || undefined
+        detailsContainer?.querySelector('[data-test="RecruiterCard"], div[class*="recruiter"]') || undefined
       );
 
-      const postedDate = this.extractPostedDate();
+      // 8. Posted Date
+      let postedDate = this.extractPostedDate();
+      if (!postedDate && card) {
+        const dateEl = card.querySelector(
+          '[data-test="JobListingPostingDate"], time, span[class*="listingDate"], span[class*="posted"]'
+        );
+        postedDate = dateEl?.textContent?.trim() || '';
+      }
+
+      // 9. In-Platform Apply Check
+      const canEasyApply =
+        !!this.findApplyButton(detailsContainer) ||
+        !!this.findApplyButton(card || document) ||
+        detailsContainer?.textContent?.toLowerCase().includes('apply on wellfound') ||
+        card?.textContent?.toLowerCase().includes('apply on wellfound') ||
+        false;
 
       return {
         platform: 'wellfound',
@@ -167,9 +263,28 @@ export class WellfoundAdapter extends JobPlatformAdapter {
         jobUrl: window.location.href,
         jobDescription,
         extractedContacts: contacts,
-        canEasyApply: this.canAutoApply(),
-        postedDate,
+        canEasyApply,
+        postedDate: postedDate || undefined,
       };
+    } catch (err) {
+      console.error('[Wellfound] Error extracting full job details:', err);
+      return null;
+    }
+  }
+
+  async parseCurrentJob(): Promise<ScrapedJob | null> {
+    try {
+      const isStandaloneJobPage = !!window.location.pathname.match(/\/jobs\/(\d+)/);
+      if (!isStandaloneJobPage && this.selectedJob && this.selectedJob.jobDescription?.length > 100) {
+        return this.selectedJob;
+      }
+
+      const job = this.extractFullJobDetails(this.selectedCard || undefined);
+      if (job) {
+        this.selectedJob = job;
+        return job;
+      }
+      return null;
     } catch (err) {
       console.error('[Wellfound] Error parsing job:', err);
       return null;
@@ -747,80 +862,24 @@ export class WellfoundAdapter extends JobPlatformAdapter {
 
     // Open the job post to view its details and reveal the Apply button
     await this.openJobPost(card);
+    await randomDelay(1000, 1600);
 
-    // DO NOT click anchor 'a[href*="/jobs/"]' as it navigates away and destroys the content script session!
-    const titleEl = card.querySelector<HTMLElement>(
-      '[data-test="JobTitle"], a[href*="/jobs/"], .styles_title__2_jV3, span[class*="title"], h3[class*="title"], h4'
-    );
-    const link = card.querySelector<HTMLAnchorElement>('a[href*="/jobs/"]');
-    let title = titleEl?.textContent?.trim() || link?.textContent?.trim() || 'Software Engineer';
-    if (title.toLowerCase().includes('search for jobs') || title.toLowerCase().startsWith('jobs in')) {
-      title = 'Software Engineer';
+    // Extract the complete, un-cut job details from the opened drawer / modal / page
+    let job = this.extractFullJobDetails(card);
+    if (!job || !job.jobDescription || job.jobDescription.length < 80) {
+      await randomDelay(800, 1200);
+      job = this.extractFullJobDetails(card);
     }
 
-    const startupContainer =
-      card.closest<HTMLElement>('[data-test="StartupResult"], div[class*="styles_result__"]') || card;
-    const company = this.extractCompanyName(startupContainer);
-
-    let externalJobId = '';
-    if (link?.href) {
-      const match = link.href.match(/\/jobs\/(\d+)/);
-      if (match) externalJobId = match[1];
-    }
-    if (!externalJobId && card.getAttribute('data-job-id')) {
-      externalJobId = card.getAttribute('data-job-id')!;
-    }
-    if (!externalJobId) {
-      externalJobId = `wf_${Math.abs(hash(title + '_' + company))}`;
+    if (job) {
+      this.selectedJob = job;
+      return {
+        success: true,
+        job,
+      };
     }
 
-    const locationEl = card.querySelector<HTMLElement>(
-      '[data-test="JobLocation"], .styles_location__3B, span[class*="location"], .text-sm.text-neutral-500'
-    );
-    const location = locationEl?.textContent?.trim() || 'Remote';
-
-    const descEl = card.querySelector<HTMLElement>(
-      '[data-test="JobDescription"], .styles_description__3w17, div[class*="description"], p'
-    );
-    const jobDescription = descEl?.textContent?.trim() || `${title} at ${company}`;
-
-    const dateEl = card.querySelector(
-      '[data-test="JobListingPostingDate"], time, span[class*="listingDate"], span[class*="posted"]'
-    );
-    let postedDate = dateEl?.textContent?.trim() || '';
-    if (!postedDate) {
-      const spans = Array.from(card.querySelectorAll('span, div'));
-      for (const s of spans) {
-        const st = s.textContent?.trim() || '';
-        if (/(?:ago|today|just posted|\d+[wdm])/i.test(st) && st.length < 35 && !st.includes('$')) {
-          postedDate = st;
-          break;
-        }
-      }
-    }
-
-    const applyBtn = this.findApplyButton(card);
-    const canEasyApply = !!applyBtn || card.textContent?.toLowerCase().includes('apply') || false;
-
-    const job: ScrapedJob = {
-      platform: 'wellfound',
-      externalJobId,
-      title,
-      company,
-      location,
-      jobUrl: link?.href || window.location.href,
-      jobDescription,
-      extractedContacts: extractContactsFromJob(jobDescription),
-      canEasyApply,
-      postedDate: postedDate || undefined,
-    };
-
-    this.selectedJob = job;
-
-    return {
-      success: true,
-      job,
-    };
+    return { success: false };
   }
 
   private async openJobPost(card: HTMLElement): Promise<void> {

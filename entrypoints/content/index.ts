@@ -15,6 +15,7 @@ export default defineContentScript({
     '*://*.naukri.com/*',
     '*://*.indeed.com/*',
   ],
+  allFrames: true,
   runAt: 'document_idle',
   main() {
     console.log('[AutoApply AI] Content script injected on', window.location.href);

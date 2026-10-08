@@ -221,15 +221,22 @@ export class LinkedInAdapter extends JobPlatformAdapter {
         await randomDelay(1000, 1800);
 
         // Check if validation errors appeared
-        const hasErrors = currentModal.querySelectorAll(
-          '.artdeco-inline-feedback--error, .fb-form-element--error, [aria-invalid="true"]'
+        const hasErrors = Array.from(
+          currentModal.querySelectorAll<HTMLElement>(
+            '.artdeco-inline-feedback--error, .fb-form-element--error, [aria-invalid="true"]'
+          )
         );
         if (hasErrors.length > 0) {
+          const firstErrEl = hasErrors[0];
+          const label = this.resolveLabelForElement(firstErrEl) || 'Required field';
+          const feedback = firstErrEl.textContent?.trim().replace(/\s+/g, ' ') || 'Validation error';
+          this.highlightModalForApproval(currentModal);
+          playAlertBeep();
           return {
             status: 'PENDING_APPROVAL',
             needsUserApproval: true,
             stepName: 'Form Validation Required',
-            message: 'Some required fields require manual input or file selection.',
+            message: `Field "${label}" needs attention: ${feedback}`,
           };
         }
         continue;
@@ -314,8 +321,33 @@ export class LinkedInAdapter extends JobPlatformAdapter {
         jobContext
       );
 
-      setNativeValue(input, answerObj.answer);
-      await randomDelay(80, 200);
+      // Check if this input is a custom Artdeco Combobox / Typeahead autocomplete
+      const isCombobox =
+        input.getAttribute('role') === 'combobox' ||
+        input.getAttribute('aria-autocomplete') === 'list' ||
+        input.closest('.artdeco-typeahead, .search-basic-typeahead') !== null;
+
+      if (isCombobox) {
+        setNativeValue(input, answerObj.answer);
+        await randomDelay(350, 600);
+
+        // Look for autocomplete suggestion dropdown listbox
+        const container = input.closest('.artdeco-typeahead, .search-basic-typeahead, div') || modal;
+        const suggestion = container.querySelector<HTMLElement>(
+          'div[role="listbox"] div[role="option"], .basic-typeahead__triggered-content li, .artdeco-typeahead__results-list li, [role="option"]'
+        );
+
+        if (suggestion) {
+          await simulateClick(suggestion);
+        } else {
+          // Trigger Enter keydown
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        }
+      } else {
+        setNativeValue(input, answerObj.answer);
+      }
+
+      await randomDelay(100, 250);
     }
 
     // 2. Select dropdowns

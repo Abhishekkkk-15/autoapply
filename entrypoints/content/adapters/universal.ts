@@ -22,6 +22,24 @@ export class UniversalAtsAdapter extends JobPlatformAdapter {
     const host = window.location.hostname.toLowerCase();
     const pathname = window.location.pathname.toLowerCase();
 
+    // Never match search engines, social media, or general websites
+    if (
+      host.includes('google.') ||
+      host.includes('bing.') ||
+      host.includes('yahoo.') ||
+      host.includes('youtube.') ||
+      host.includes('github.') ||
+      host.includes('facebook.') ||
+      host.includes('instagram.') ||
+      host.includes('twitter.') ||
+      host.includes('x.com') ||
+      host.includes('reddit.') ||
+      host.includes('amazon.') ||
+      host.includes('wikipedia.')
+    ) {
+      return false;
+    }
+
     // 1. Known major ATS platforms
     if (
       host.includes('greenhouse.io') ||
@@ -30,20 +48,22 @@ export class UniversalAtsAdapter extends JobPlatformAdapter {
       host.includes('myworkdayjobs.com') ||
       host.includes('workatastartup.com') ||
       host.includes('smartrecruiters.com') ||
-      host.includes('bamboohr.com')
+      host.includes('bamboohr.com') ||
+      host.includes('rippling.com')
     ) {
       return true;
     }
 
     // 2. Generic detection: Careers page or job application form present
     const hasJobForm = !!document.querySelector(
-      'form[id*="app" i], form[action*="apply" i], form[id*="job" i], form[class*="application" i], form:has(input[type="file"])'
+      'form[id*="apply" i], form[action*="apply" i], form[id*="application" i], form[class*="application" i], form:has(input[type="file"])'
     );
     const isCareerPath =
       pathname.includes('/jobs/') ||
       pathname.includes('/careers/') ||
       pathname.includes('/job/') ||
       pathname.includes('/career/') ||
+      pathname.includes('/positions/') ||
       pathname.includes('/apply');
 
     return hasJobForm || isCareerPath;

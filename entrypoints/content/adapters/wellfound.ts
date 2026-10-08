@@ -20,6 +20,26 @@ export class WellfoundAdapter extends JobPlatformAdapter {
   private selectedCard: HTMLElement | null = null;
   private selectedJob: ScrapedJob | null = null;
 
+  constructor() {
+    super();
+    if (typeof document !== 'undefined') {
+      document.addEventListener(
+        'click',
+        (e) => {
+          const target = e.target as HTMLElement | null;
+          if (!target) return;
+          const card = target.closest<HTMLElement>(
+            '[data-test="JobListing"], div[class*="styles_jobListing__"], [data-test="StartupResult"], div[class*="styles_result__"]'
+          );
+          if (card) {
+            this.selectedCard = card;
+          }
+        },
+        { capture: true, passive: true }
+      );
+    }
+  }
+
   isMatch(): boolean {
     const host = window.location.hostname;
     return host.includes('wellfound.com') || host.includes('angel.co');
@@ -96,9 +116,10 @@ export class WellfoundAdapter extends JobPlatformAdapter {
       // 1. Details container (drawer, modal dialog, or main page)
       const detailsContainer =
         document.querySelector<HTMLElement>(
-          '[data-test="JobDetailModal"], div[role="dialog"], div[aria-modal="true"], aside, div[class*="drawer"], div[class*="sheet"], div[class*="JobDetail"], [data-test="JobListing"]'
+          '[data-test="JobDetailModal"], div[role="dialog"], div[aria-modal="true"], aside, div[class*="drawer"], div[class*="sheet"], div[class*="JobDetail"], div[class*="styles_drawer__"], div[class*="styles_modal__"]'
         ) ||
-        document.querySelector<HTMLElement>('main') ||
+        (card ? card : null) ||
+        (window.location.pathname.includes('/jobs/') ? document.querySelector<HTMLElement>('main') : null) ||
         document.body;
 
       // 2. Clean Title
@@ -279,11 +300,28 @@ export class WellfoundAdapter extends JobPlatformAdapter {
         return this.selectedJob;
       }
 
-      const job = this.extractFullJobDetails(this.selectedCard || undefined);
-      if (job) {
-        this.selectedJob = job;
-        return job;
+      // 1. Check if an open details modal or drawer exists
+      const openDrawer = document.querySelector<HTMLElement>(
+        '[data-test="JobDetailModal"], div[role="dialog"], div[aria-modal="true"], aside, div[class*="drawer"], div[class*="sheet"], div[class*="JobDetail"], div[class*="styles_drawer__"], div[class*="styles_modal__"]'
+      );
+
+      if (openDrawer || isStandaloneJobPage) {
+        const job = this.extractFullJobDetails(this.selectedCard || undefined);
+        if (job && job.title && !job.title.toLowerCase().includes('search for jobs')) {
+          this.selectedJob = job;
+          return job;
+        }
       }
+
+      // 2. If a card was selected
+      if (this.selectedCard) {
+        const job = this.extractFullJobDetails(this.selectedCard);
+        if (job && job.title && !job.title.toLowerCase().includes('search for jobs')) {
+          this.selectedJob = job;
+          return job;
+        }
+      }
+
       return null;
     } catch (err) {
       console.error('[Wellfound] Error parsing job:', err);

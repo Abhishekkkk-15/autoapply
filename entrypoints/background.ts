@@ -104,11 +104,37 @@ export default defineBackground(() => {
     state.mode = settings.mode;
   })();
 
+  async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
+    try {
+      const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (tabs.length > 0 && tabs[0].id) return tabs[0];
+      const allActive = await chrome.tabs.query({ active: true });
+      if (allActive.length > 0 && allActive[0].id) return allActive[0];
+      const allTabs = await chrome.tabs.query({});
+      const jobTab = allTabs.find(
+        (t) =>
+          t.url &&
+          (t.url.includes('wellfound.com') ||
+            t.url.includes('angel.co') ||
+            t.url.includes('linkedin.com') ||
+            t.url.includes('indeed.com') ||
+            t.url.includes('naukri.com') ||
+            t.url.includes('greenhouse.io') ||
+            t.url.includes('lever.co') ||
+            t.url.includes('ashbyhq.com') ||
+            t.url.includes('workday.com'))
+      );
+      return jobTab || allTabs[0] || null;
+    } catch {
+      return null;
+    }
+  }
+
   // Register MCP bridge RPC handlers for coding agents (Claude Code, Antigravity, Cursor)
   mcpBridge.registerHandler('GET_STATE', async () => state);
 
   mcpBridge.registerHandler('GET_CURRENT_JOB', async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getActiveTab();
     if (!tab?.id) return state.currentJob || null;
     try {
       const res = await chrome.tabs.sendMessage(tab.id, { type: 'CHECK_TAB_PLATFORM' });
@@ -128,7 +154,7 @@ export default defineBackground(() => {
       customCoverLetter?: string;
       customAnswers?: CustomQuestionAnswer[];
     }) => {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tab = await getActiveTab();
       if (!tab?.id) throw new Error('No active browser tab found.');
       await executeApplyOnTab(tab.id, payload?.mode || state.mode, {
         customPitch: payload?.customPitch,
@@ -161,7 +187,7 @@ export default defineBackground(() => {
 
   mcpBridge.registerHandler('SUBMIT_PENDING_APPROVAL', async () => {
     if (!activeTabId) {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tab = await getActiveTab();
       activeTabId = tab?.id || null;
     }
     if (!activeTabId) throw new Error('No active browser tab.');
@@ -275,7 +301,7 @@ export default defineBackground(() => {
       const tab = await chrome.tabs.create({ url: payload.url, active: true });
       tabId = tab.id!;
     } else {
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const activeTab = await getActiveTab();
       if (activeTab?.id) {
         await chrome.tabs.update(activeTab.id, { url: payload.url });
         tabId = activeTab.id;
@@ -317,7 +343,7 @@ export default defineBackground(() => {
       await waitForTabComplete(tabId, 25000);
       await delay(2500);
     } else {
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const activeTab = await getActiveTab();
       if (!activeTab?.id) throw new Error('No active LinkedIn tab found.');
       tabId = activeTab.id;
     }
@@ -331,7 +357,7 @@ export default defineBackground(() => {
   mcpBridge.registerHandler('SCRAPE_PAGE', async (payload?: { tabId?: number }) => {
     let targetTabId = payload?.tabId;
     if (!targetTabId) {
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const activeTab = await getActiveTab();
       targetTabId = activeTab?.id;
     }
     if (!targetTabId) throw new Error('No active tab to scrape.');
@@ -342,7 +368,7 @@ export default defineBackground(() => {
   });
 
   mcpBridge.registerHandler('UNIVERSAL_APPLY', async (payload: { mode?: 'semi-auto' | 'full-auto'; customPitch?: string }) => {
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const activeTab = await getActiveTab();
     if (!activeTab?.id) throw new Error('No active tab found.');
     const res = await chrome.tabs.sendMessage(activeTab.id, {
       type: 'EXECUTE_APPLY_ON_CURRENT_TAB',
@@ -502,7 +528,7 @@ export default defineBackground(() => {
 
       case 'EXECUTE_APPLY_ON_CURRENT_TAB': {
         (async () => {
-          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          const tab = await getActiveTab();
           if (!tab?.id) {
             sendResponse({ status: 'FAILED', message: 'No active tab found.' });
             return;
@@ -521,7 +547,7 @@ export default defineBackground(() => {
       case 'SUBMIT_PENDING_APPROVAL': {
         (async () => {
           if (!activeTabId) {
-            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            const tab = await getActiveTab();
             activeTabId = tab?.id || null;
           }
           if (activeTabId) {
@@ -605,6 +631,53 @@ export default defineBackground(() => {
         mcpBridge.connect();
         sendResponse({ ok: true });
         return false;
+      }
+
+      case 'GMAIL_COMPOSE_AND_SEND': {
+        (async () => {
+          try {
+            const gmailTabs = await chrome.tabs.query({ url: '*://mail.google.com/*' });
+            let tabId: number;
+            if (gmailTabs.length > 0 && gmailTabs[0].id) {
+              tabId = gmailTabs[0].id;
+              await chrome.tabs.update(tabId, { active: true });
+            } else {
+              const tab = await chrome.tabs.create({ url: 'https://mail.google.com/mail/u/0/#inbox', active: true });
+              tabId = tab.id!;
+              await waitForTabComplete(tabId, 30000);
+              await delay(3000);
+            }
+            await delay(1000);
+            const res = await chrome.tabs.sendMessage(tabId, message);
+            sendResponse(res);
+          } catch (err: any) {
+            sendResponse({ success: false, message: err.message });
+          }
+        })();
+        return true;
+      }
+
+      case 'LINKEDIN_SEND_OUTREACH': {
+        (async () => {
+          try {
+            let tabId: number;
+            if (message.payload.profileUrl) {
+              const tab = await chrome.tabs.create({ url: message.payload.profileUrl, active: true });
+              tabId = tab.id!;
+              await waitForTabComplete(tabId, 25000);
+              await delay(2500);
+            } else {
+              const activeTab = await getActiveTab();
+              if (!activeTab?.id) throw new Error('No active LinkedIn tab found.');
+              tabId = activeTab.id;
+            }
+            const res = await chrome.tabs.sendMessage(tabId, message);
+            sendResponse(res);
+          } catch (err: any) {
+            sendResponse({ success: false, message: err.message });
+          }
+        })();
+        return true;
       }
     }
   });
@@ -864,7 +937,7 @@ export default defineBackground(() => {
     await updateState({ status: 'RUNNING', mode });
     await recordLog('info', `Queue started in ${mode} mode.`);
 
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const activeTab = await getActiveTab();
     if (activeTab?.id) {
       await executeApplyOnTab(activeTab.id, mode);
     }
@@ -987,7 +1060,7 @@ export default defineBackground(() => {
       await recordLog('info', `Navigating to search URL: ${searchUrl}`);
 
       // 2. Navigate or create tab
-      const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const currentTab = await getActiveTab();
       let tabId: number;
       if (currentTab?.id) {
         tabId = currentTab.id;

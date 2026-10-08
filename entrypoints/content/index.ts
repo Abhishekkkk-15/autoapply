@@ -53,6 +53,16 @@ export default defineContentScript({
     setTimeout(checkAndReportCurrentJob, 1500);
     setInterval(checkAndReportCurrentJob, 4000);
 
+    // Also trigger check when user clicks in page (e.g. clicking job card or Learn more)
+    document.addEventListener(
+      'click',
+      () => {
+        setTimeout(checkAndReportCurrentJob, 500);
+        setTimeout(checkAndReportCurrentJob, 1500);
+      },
+      { passive: true }
+    );
+
     // Listen for extension commands
     chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
       const adapter = getActiveAdapter();

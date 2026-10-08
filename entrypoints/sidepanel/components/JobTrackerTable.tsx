@@ -27,6 +27,7 @@ export const JobTrackerTable: React.FC = () => {
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedJobModal, setSelectedJobModal] = useState<AppliedJobRecord | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [outreachStatus, setOutreachStatus] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -55,6 +56,39 @@ export const JobTrackerTable: React.FC = () => {
     navigator.clipboard.writeText(text);
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(null), 2000);
+  };
+
+  const handleSendViaGmail = (job: AppliedJobRecord) => {
+    const to = job.extractedContacts?.emails?.[0] || 'hiring@company.com';
+    const subject = `${job.title} application inquiry`;
+    const body = job.generatedArtifacts?.coldEmail || '';
+    setOutreachStatus('Opening Gmail...');
+    chrome.runtime.sendMessage(
+      {
+        type: 'GMAIL_COMPOSE_AND_SEND',
+        payload: { to, subject, body, action: 'draft' },
+      },
+      (res) => {
+        setOutreachStatus(res?.message || 'Gmail draft opened!');
+        setTimeout(() => setOutreachStatus(null), 4000);
+      }
+    );
+  };
+
+  const handleConnectLinkedIn = (job: AppliedJobRecord) => {
+    const profileUrl = job.extractedContacts?.recruiterProfileUrl;
+    const note = job.generatedArtifacts?.linkedinConnectionNote || '';
+    setOutreachStatus('Connecting on LinkedIn...');
+    chrome.runtime.sendMessage(
+      {
+        type: 'LINKEDIN_SEND_OUTREACH',
+        payload: { profileUrl, note, action: 'connect' },
+      },
+      (res) => {
+        setOutreachStatus(res?.message || 'LinkedIn outreach completed!');
+        setTimeout(() => setOutreachStatus(null), 4000);
+      }
+    );
   };
 
   // Filtered jobs
@@ -353,6 +387,13 @@ export const JobTrackerTable: React.FC = () => {
 
             {/* Modal Scrollable Body */}
             <div className="p-4 overflow-y-auto space-y-4">
+              {outreachStatus && (
+                <div className="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-2">
+                  <Mail className="w-3.5 h-3.5 animate-pulse text-blue-600" />
+                  <span>{outreachStatus}</span>
+                </div>
+              )}
+
               {/* 1. Tailored Cover Letter */}
               {selectedJobModal.generatedArtifacts?.coverLetter && (
                 <div className="flex flex-col gap-1.5">
@@ -426,25 +467,34 @@ export const JobTrackerTable: React.FC = () => {
                     <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wider">
                       Executive Cold Email Outreach
                     </span>
-                    <button
-                      onClick={() =>
-                        copyToClipboard(
-                          selectedJobModal.generatedArtifacts.coldEmail!,
-                          'cold'
-                        )
-                      }
-                      className="flex items-center gap-1 text-[11px] text-blue-600 font-semibold hover:text-blue-700"
-                    >
-                      {copiedKey === 'cold' ? (
-                        <>
-                          <Check className="w-3 h-3" /> Copied!
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3 h-3" /> Copy
-                        </>
-                      )}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleSendViaGmail(selectedJobModal)}
+                        className="flex items-center gap-1 text-[11px] bg-red-50 text-red-700 px-2 py-0.5 rounded border border-red-200 font-semibold hover:bg-red-100 transition-colors"
+                        title="Open and populate Gmail compose draft"
+                      >
+                        <Mail className="w-3 h-3 text-red-600" /> Open in Gmail
+                      </button>
+                      <button
+                        onClick={() =>
+                          copyToClipboard(
+                            selectedJobModal.generatedArtifacts.coldEmail!,
+                            'cold'
+                          )
+                        }
+                        className="flex items-center gap-1 text-[11px] text-blue-600 font-semibold hover:text-blue-700"
+                      >
+                        {copiedKey === 'cold' ? (
+                          <>
+                            <Check className="w-3 h-3" /> Copied!
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" /> Copy
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
                   <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-slate-700 whitespace-pre-wrap leading-relaxed text-[11px]">
                     {selectedJobModal.generatedArtifacts.coldEmail}
@@ -459,25 +509,34 @@ export const JobTrackerTable: React.FC = () => {
                     <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wider">
                       LinkedIn Connection Note (&lt;300 chars)
                     </span>
-                    <button
-                      onClick={() =>
-                        copyToClipboard(
-                          selectedJobModal.generatedArtifacts.linkedinConnectionNote!,
-                          'linote'
-                        )
-                      }
-                      className="flex items-center gap-1 text-[11px] text-blue-600 font-semibold hover:text-blue-700"
-                    >
-                      {copiedKey === 'linote' ? (
-                        <>
-                          <Check className="w-3 h-3" /> Copied!
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3 h-3" /> Copy
-                        </>
-                      )}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleConnectLinkedIn(selectedJobModal)}
+                        className="flex items-center gap-1 text-[11px] bg-sky-50 text-sky-700 px-2 py-0.5 rounded border border-sky-200 font-semibold hover:bg-sky-100 transition-colors"
+                        title="Open profile and send connection note"
+                      >
+                        <UserCheck className="w-3 h-3 text-sky-600" /> Connect on LinkedIn
+                      </button>
+                      <button
+                        onClick={() =>
+                          copyToClipboard(
+                            selectedJobModal.generatedArtifacts.linkedinConnectionNote!,
+                            'linote'
+                          )
+                        }
+                        className="flex items-center gap-1 text-[11px] text-blue-600 font-semibold hover:text-blue-700"
+                      >
+                        {copiedKey === 'linote' ? (
+                          <>
+                            <Check className="w-3 h-3" /> Copied!
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" /> Copy
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
                   <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-slate-700 text-[11px]">
                     {selectedJobModal.generatedArtifacts.linkedinConnectionNote}

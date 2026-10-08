@@ -1,4 +1,4 @@
-import { JobPlatformAdapter } from './base';
+import { JobPlatformAdapter, type SearchCardInfo } from './base';
 import type {
   ScrapedJob,
   UserProfile,
@@ -226,6 +226,94 @@ export class NaukriAdapter extends JobPlatformAdapter {
       };
     }
     return this.executeApplyStep(profile, false);
+  }
+
+  getSearchResultCards(): SearchCardInfo[] {
+    const rawCards = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '.srp-jobtuple-wrapper, article.jobTuple, div.cust-job-tuple, div[data-job-id]'
+      )
+    );
+
+    const cards: SearchCardInfo[] = [];
+    const seenIds = new Set<string>();
+
+    for (let i = 0; i < rawCards.length; i++) {
+      const card = rawCards[i];
+      const titleEl = card.querySelector<HTMLElement>('a.title, [class*="title"]');
+      const title = titleEl?.textContent?.trim() || '';
+      if (!title) continue;
+
+      const compEl = card.querySelector<HTMLElement>('a.comp-name, [class*="comp-name"], .subTitle');
+      const company = compEl?.textContent?.trim() || '';
+
+      const link = card.querySelector<HTMLAnchorElement>('a.title, a[href*="job-listings"]');
+      let id = card.getAttribute('data-job-id') || '';
+      if (!id && link?.href) {
+        const match = link.href.match(/(\d{6,})/);
+        if (match) id = match[1];
+      }
+      if (!id) {
+        id = `nk_${i}_${title}_${company}`;
+      }
+
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+
+      const isEasyApply = true; // Naukri 1-click applies directly unless marked company site
+
+      const dateEl = card.querySelector('span.job-post-day, span.posted-by, [class*="posted"]');
+      let cardPostedDate = dateEl?.textContent?.trim() || '';
+
+      cards.push({
+        index: i,
+        id,
+        title,
+        company,
+        isEasyApply,
+        postedDate: cardPostedDate || undefined,
+      });
+    }
+
+    return cards;
+  }
+
+  async selectSearchResultCard(index: number): Promise<{ success: boolean; job?: ScrapedJob }> {
+    const rawCards = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '.srp-jobtuple-wrapper, article.jobTuple, div.cust-job-tuple, div[data-job-id]'
+      )
+    );
+
+    const card = rawCards[index];
+    if (!card) return { success: false };
+
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    await randomDelay(300, 600);
+
+    const link = card.querySelector<HTMLElement>('a.title, a[href*="job-listings"]') || card;
+    await simulateClick(link);
+
+    await randomDelay(1800, 2600);
+    const job = await this.parseCurrentJob();
+    return {
+      success: !!job,
+      job: job || undefined,
+    };
+  }
+
+  async clickNextPage(): Promise<boolean> {
+    const nextBtn = document.querySelector<HTMLElement>(
+      'a.styles_btn-secondary__2AsLu, a.next, a[href*="jobs-"]'
+    );
+    if (nextBtn) {
+      nextBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      await randomDelay(400, 800);
+      await simulateClick(nextBtn);
+      await randomDelay(2500, 3500);
+      return true;
+    }
+    return false;
   }
 }
 

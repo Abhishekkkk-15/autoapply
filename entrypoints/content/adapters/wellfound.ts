@@ -1,4 +1,4 @@
-import { JobPlatformAdapter } from './base';
+import { JobPlatformAdapter, type SearchCardInfo } from './base';
 import type {
   ScrapedJob,
   UserProfile,
@@ -245,6 +245,117 @@ export class WellfoundAdapter extends JobPlatformAdapter {
       }
     }
     return this.executeApplyStep(profile, false);
+  }
+
+  getSearchResultCards(): SearchCardInfo[] {
+    const rawCards = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '[data-test="StartupResult"], div[class*="styles_result__"], [data-test="JobListing"], div[class*="styles_jobListing__"], div[data-test="job-listing"], div.styles_jobListing__'
+      )
+    );
+
+    const cards: SearchCardInfo[] = [];
+    const seenIds = new Set<string>();
+
+    for (let i = 0; i < rawCards.length; i++) {
+      const card = rawCards[i];
+      const titleEl = card.querySelector<HTMLElement>(
+        '[data-test="JobTitle"], a[href*="/jobs/"], .styles_title__2_jV3, h2, h3, h4'
+      );
+      const title = titleEl?.textContent?.trim() || '';
+      if (!title) continue;
+
+      const compEl = card.querySelector<HTMLElement>(
+        '[data-test="StartupName"], a[href*="/company/"], .styles_companyName__3p, h2, h3'
+      );
+      const company = compEl?.textContent?.trim() || '';
+
+      const link = card.querySelector<HTMLAnchorElement>('a[href*="/jobs/"]');
+      let id = '';
+      if (link?.href) {
+        const match = link.href.match(/\/jobs\/(\d+)/);
+        if (match) id = match[1];
+      }
+      if (!id) {
+        id = `wf_${i}_${title}_${company}`;
+      }
+
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+
+      const isEasyApply =
+        !!card.querySelector('button[data-test="ApplyButton"], button[data-test="QuickApplyButton"]') ||
+        card.textContent?.toLowerCase().includes('apply') ||
+        false;
+
+      // Extract posted date if present
+      const dateEl = card.querySelector(
+        '[data-test="JobListingPostingDate"], time, span[class*="listingDate"], span[class*="posted"]'
+      );
+      let cardPostedDate = dateEl?.textContent?.trim() || '';
+      if (!cardPostedDate) {
+        const spans = Array.from(card.querySelectorAll('span'));
+        for (const s of spans) {
+          const st = s.textContent?.trim() || '';
+          if (/(?:ago|today|just posted|\d+[wdm])/i.test(st) && st.length < 35 && !st.includes('$')) {
+            cardPostedDate = st;
+            break;
+          }
+        }
+      }
+
+      cards.push({
+        index: i,
+        id,
+        title,
+        company,
+        isEasyApply,
+        postedDate: cardPostedDate || undefined,
+      });
+    }
+
+    return cards;
+  }
+
+  async selectSearchResultCard(index: number): Promise<{ success: boolean; job?: ScrapedJob }> {
+    const rawCards = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '[data-test="StartupResult"], div[class*="styles_result__"], [data-test="JobListing"], div[class*="styles_jobListing__"], div[data-test="job-listing"], div.styles_jobListing__'
+      )
+    );
+
+    const card = rawCards[index];
+    if (!card) return { success: false };
+
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    await randomDelay(300, 600);
+
+    const link = card.querySelector<HTMLElement>('a[href*="/jobs/"], [data-test="JobTitle"]') || card;
+    await simulateClick(link);
+
+    await randomDelay(1800, 2600);
+    const job = await this.parseCurrentJob();
+    return {
+      success: !!job,
+      job: job || undefined,
+    };
+  }
+
+  async clickNextPage(): Promise<boolean> {
+    const nextBtn = document.querySelector<HTMLElement>(
+      'button[data-test="load-more"], button[data-test="NextPage"], button[aria-label="Next"]'
+    );
+    if (nextBtn) {
+      nextBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      await randomDelay(400, 800);
+      await simulateClick(nextBtn);
+      await randomDelay(2500, 3500);
+      return true;
+    }
+    // Infinite scroll fallback on Wellfound: scroll down to trigger dynamic loading
+    window.scrollBy({ top: 1200, behavior: 'smooth' });
+    await randomDelay(2000, 3000);
+    return true;
   }
 }
 

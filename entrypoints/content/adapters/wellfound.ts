@@ -17,28 +17,117 @@ import { generatePitchAndLetter } from '@/src/lib/ai';
 
 export class WellfoundAdapter extends JobPlatformAdapter {
   readonly platform: Platform = 'wellfound';
+  private selectedCard: HTMLElement | null = null;
+  private selectedJob: ScrapedJob | null = null;
 
   isMatch(): boolean {
     const host = window.location.hostname;
     return host.includes('wellfound.com') || host.includes('angel.co');
   }
 
+  cleanCompanyName(raw: string): string {
+    if (!raw) return 'Startup';
+    let cleaned = raw.trim();
+    cleaned = cleaned.replace(/Actively Hiring/gi, '');
+    cleaned = cleaned.replace(/\d+(?:-\d+|\+)?\s*Employees?/gi, '');
+    cleaned = cleaned.replace(/Seed|Series [A-Z]|Bootstrapped/gi, '');
+    cleaned = cleaned.replace(/\s+/g, ' ');
+    const lines = cleaned.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lines.length > 0) {
+      cleaned = lines[0];
+    }
+    if (cleaned.length > 45 && cleaned.includes('.')) {
+      cleaned = cleaned.split('.')[0].trim();
+    }
+    cleaned = cleaned.replace(/^[\s\-–—]+|[\s\-–—]+$/g, '');
+    return cleaned.trim() || 'Startup';
+  }
+
+  extractCompanyName(container: HTMLElement | Document): string {
+    const specificHeading = container.querySelector<HTMLElement>(
+      '[data-test="StartupName"], a[href*="/company/"] h2, a[href*="/company/"] h3, [data-test="StartupResult"] h2, [data-test="StartupResult"] h3, .styles_companyName__3p, h2[class*="company"], h2[class*="startup"]'
+    );
+    if (specificHeading?.textContent?.trim()) {
+      return this.cleanCompanyName(specificHeading.textContent);
+    }
+
+    if (container !== document) {
+      const h2 = container.querySelector<HTMLElement>('h2, h3');
+      if (h2?.textContent?.trim()) {
+        const text = h2.textContent.trim();
+        if (!text.toLowerCase().includes('search for jobs') && !text.toLowerCase().startsWith('jobs in')) {
+          return this.cleanCompanyName(text);
+        }
+      }
+    }
+
+    const compEl = container.querySelector<HTMLElement>('a[href*="/company/"]');
+    if (compEl) {
+      const firstChildEl = compEl.querySelector('h2, h3, h4, span, strong, div');
+      if (firstChildEl?.textContent?.trim()) {
+        const text = firstChildEl.textContent.trim();
+        if (text.length > 1 && text.length < 50 && !text.toLowerCase().includes('actively hiring')) {
+          return this.cleanCompanyName(text);
+        }
+      }
+      return this.cleanCompanyName(compEl.textContent || '');
+    }
+
+    return 'Startup';
+  }
+
   async parseCurrentJob(): Promise<ScrapedJob | null> {
     try {
-      const titleEl = document.querySelector(
-        'h1, [data-test="JobTitle"], .styles_title__2_jV3, .text-xl.font-semibold'
-      );
-      const title = titleEl?.textContent?.trim() || 'Software Engineer';
+      const isStandaloneJobPage = !!window.location.pathname.match(/\/jobs\/(\d+)/);
+      if (!isStandaloneJobPage && this.selectedJob) {
+        return this.selectedJob;
+      }
 
-      const companyEl = document.querySelector(
-        '[data-test="StartupName"], a[href*="/company/"], .styles_companyName__3p',
-        
-      );
-      const company = companyEl?.textContent?.trim() || 'Startup';
+      const modal = this.findApplyModal();
+      let title = '';
+      let company = '';
 
-      const locationEl = document.querySelector(
-        '[data-test="JobLocation"], .styles_location__3B, .text-sm.text-neutral-500'
-      );
+      if (modal) {
+        const modalTitle = modal.querySelector<HTMLElement>(
+          '[data-test="JobTitle"], h2, h3, .styles_title__2_jV3'
+        );
+        if (modalTitle?.textContent?.trim()) {
+          const t = modalTitle.textContent.trim();
+          if (!t.toLowerCase().includes('search for jobs') && !t.toLowerCase().startsWith('jobs in')) {
+            title = t;
+          }
+        }
+        company = this.extractCompanyName(modal);
+      }
+
+      if (!title) {
+        const titleCandidates = Array.from(
+          document.querySelectorAll<HTMLElement>(
+            '[data-test="JobTitle"], .styles_title__2_jV3, h1[class*="title"], h1, .text-xl.font-semibold'
+          )
+        );
+        for (const el of titleCandidates) {
+          const text = el.textContent?.trim() || '';
+          if (
+            text &&
+            !text.toLowerCase().includes('search for jobs') &&
+            !text.toLowerCase().startsWith('jobs in') &&
+            !text.toLowerCase().includes('find startup jobs')
+          ) {
+            title = text;
+            break;
+          }
+        }
+      }
+      if (!title) title = 'Software Engineer';
+
+      if (!company || company === 'Startup') {
+        company = this.extractCompanyName(document);
+      }
+
+      const locationEl =
+        modal?.querySelector('[data-test="JobLocation"], .styles_location__3B, .text-sm.text-neutral-500') ||
+        document.querySelector('[data-test="JobLocation"], .styles_location__3B, .text-sm.text-neutral-500');
       const location = locationEl?.textContent?.trim() || 'Remote';
 
       const descEl = document.querySelector(
@@ -46,8 +135,21 @@ export class WellfoundAdapter extends JobPlatformAdapter {
       );
       const jobDescription = descEl?.textContent?.trim() || '';
 
+      let externalJobId = '';
       const match = window.location.pathname.match(/\/jobs\/(\d+)/);
-      const externalJobId = match ? match[1] : `wf_${Math.abs(hash(title + company))}`;
+      if (match) {
+        externalJobId = match[1];
+      } else if (modal) {
+        const link = modal.querySelector<HTMLAnchorElement>('a[href*="/jobs/"]');
+        const m = link?.href?.match(/\/jobs\/(\d+)/);
+        if (m) externalJobId = m[1];
+      }
+      if (!externalJobId && this.selectedJob?.externalJobId) {
+        externalJobId = this.selectedJob.externalJobId;
+      }
+      if (!externalJobId) {
+        externalJobId = `wf_${Math.abs(hash(title + '_' + company))}`;
+      }
 
       const contacts = extractContactsFromJob(
         jobDescription,
@@ -99,16 +201,20 @@ export class WellfoundAdapter extends JobPlatformAdapter {
   }
 
   canAutoApply(): boolean {
+    if (this.selectedCard) {
+      return !!this.findApplyButton(this.selectedCard);
+    }
     return !!this.findApplyButton();
   }
 
-  private findApplyButton(): HTMLElement | null {
+  findApplyButton(container: HTMLElement | Document = document): HTMLElement | null {
     const buttons = Array.from(
-      document.querySelectorAll<HTMLElement>(
-        'button[data-test="ApplyButton"], button[data-test="QuickApplyButton"], button'
+      container.querySelectorAll<HTMLElement>(
+        'button[data-test="ApplyButton"], button[data-test="QuickApplyButton"], button, a[role="button"]'
       )
     );
     for (const b of buttons) {
+      if (b.offsetWidth === 0 && b.offsetHeight === 0 && b.getClientRects().length === 0) continue;
       const text = b.textContent?.trim().toLowerCase() || '';
       if (
         (text.includes('apply') || text.includes('quick apply')) &&
@@ -269,7 +375,7 @@ export class WellfoundAdapter extends JobPlatformAdapter {
       customAnswers?: CustomQuestionAnswer[];
     }
   ): Promise<ApplyStepResult> {
-    const job = await this.parseCurrentJob();
+    const job = this.selectedJob || (await this.parseCurrentJob());
     if (!job) {
       return { status: 'FAILED', message: 'Could not scrape job details on Wellfound.' };
     }
@@ -285,7 +391,11 @@ export class WellfoundAdapter extends JobPlatformAdapter {
     let modal = this.findApplyModal();
 
     if (!noteInput) {
-      const applyBtn = this.findApplyButton();
+      // Look for apply button on selected card first, then document
+      let applyBtn = this.selectedCard ? this.findApplyButton(this.selectedCard) : null;
+      if (!applyBtn) {
+        applyBtn = this.findApplyButton(document);
+      }
       if (!applyBtn) {
         return { status: 'NO_EASY_APPLY', message: 'No active Apply button found on Wellfound.' };
       }
@@ -302,7 +412,7 @@ export class WellfoundAdapter extends JobPlatformAdapter {
       }
     }
 
-    modal = modal || (noteInput ? (noteInput.closest('div[role="dialog"], form') as HTMLElement) : null);
+    modal = modal || (noteInput ? (noteInput.closest('div[role="dialog"], form, aside, div[class*="modal"]') as HTMLElement) : null);
 
     // 2. Prepare pitch note & cover letter
     let pitchNote = customOptions?.customPitch?.trim() || '';
@@ -377,7 +487,7 @@ export class WellfoundAdapter extends JobPlatformAdapter {
           : noteInput.textContent || '';
 
       if (!currentVal.trim()) {
-        const job: ScrapedJob = (await this.parseCurrentJob()) || {
+        const job: ScrapedJob = this.selectedJob || (await this.parseCurrentJob()) || {
           platform: 'wellfound',
           externalJobId: 'wf_temp',
           title: 'Software Engineer',
@@ -432,6 +542,10 @@ export class WellfoundAdapter extends JobPlatformAdapter {
 
       await this.closeSuccessModalIfOpen();
 
+      // Clear selection references
+      this.selectedCard = null;
+      this.selectedJob = null;
+
       return {
         status: 'SUBMITTED',
         message: 'Application submitted successfully on Wellfound.',
@@ -457,44 +571,100 @@ export class WellfoundAdapter extends JobPlatformAdapter {
     }
   }
 
-  getSearchResultCards(): SearchCardInfo[] {
-    const rawCards = Array.from(
+  private async closeAnyOpenModal(): Promise<void> {
+    const dismissBtns = Array.from(
       document.querySelectorAll<HTMLElement>(
-        '[data-test="StartupResult"], div[class*="styles_result__"], [data-test="JobListing"], div[class*="styles_jobListing__"], div[data-test="job-listing"], div.styles_jobListing__'
+        'button[aria-label="Close"], button[aria-label="Dismiss"], button[data-test="CloseModalButton"], button[data-test*="close"], button.styles_closeButton__, [data-test="Modal"] button[aria-label="Close"]'
       )
     );
+    for (const btn of dismissBtns) {
+      if (btn.offsetWidth > 0 || btn.offsetHeight > 0 || btn.getClientRects().length > 0) {
+        await simulateClick(btn);
+        await randomDelay(400, 700);
+        break;
+      }
+    }
+  }
 
+  private getJobCardElements(): HTMLElement[] {
+    // 1. Look for individual job listings inside startup containers or list items
+    const jobListings = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '[data-test="JobListing"], div[class*="styles_jobListing__"], div[data-test="job-listing"], div.styles_jobListing__'
+      )
+    );
+    if (jobListings.length > 0) {
+      return jobListings;
+    }
+
+    // 2. Look for job links inside startup results
+    const jobLinks = Array.from(
+      document.querySelectorAll<HTMLAnchorElement>(
+        '[data-test="StartupResult"] a[href*="/jobs/"], div[class*="styles_result__"] a[href*="/jobs/"]'
+      )
+    );
+    if (jobLinks.length > 0) {
+      const cards: HTMLElement[] = [];
+      for (const link of jobLinks) {
+        const container =
+          link.closest<HTMLElement>(
+            '[data-test="JobListing"], div[class*="styles_jobListing__"], [data-test="StartupResult"], div[class*="styles_result__"]'
+          ) || (link.parentElement as HTMLElement);
+        if (container && !cards.includes(container)) {
+          cards.push(container);
+        }
+      }
+      if (cards.length > 0) return cards;
+    }
+
+    // 3. Fallback: startup result containers
+    return Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '[data-test="StartupResult"], div[class*="styles_result__"]'
+      )
+    );
+  }
+
+  getSearchResultCards(): SearchCardInfo[] {
+    const rawCards = this.getJobCardElements();
     const cards: SearchCardInfo[] = [];
     const seenIds = new Set<string>();
 
     for (let i = 0; i < rawCards.length; i++) {
       const card = rawCards[i];
+      // Job title: must NOT pick h2 if h2 is startup name
       const titleEl = card.querySelector<HTMLElement>(
-        '[data-test="JobTitle"], a[href*="/jobs/"], .styles_title__2_jV3, h2, h3, h4'
+        '[data-test="JobTitle"], a[href*="/jobs/"], .styles_title__2_jV3, span[class*="title"], h3[class*="title"], h4'
       );
-      const title = titleEl?.textContent?.trim() || '';
-      if (!title) continue;
-
-      const compEl = card.querySelector<HTMLElement>(
-        '[data-test="StartupName"], a[href*="/company/"], .styles_companyName__3p, h2, h3'
-      );
-      const company = compEl?.textContent?.trim() || '';
-
       const link = card.querySelector<HTMLAnchorElement>('a[href*="/jobs/"]');
+      let title = titleEl?.textContent?.trim() || link?.textContent?.trim() || '';
+
+      if (!title || title.toLowerCase().includes('search for jobs') || title.toLowerCase().startsWith('jobs in')) {
+        continue;
+      }
+
+      // Company name
+      const startupContainer =
+        card.closest<HTMLElement>('[data-test="StartupResult"], div[class*="styles_result__"]') || card;
+      const company = this.extractCompanyName(startupContainer);
+
       let id = '';
       if (link?.href) {
         const match = link.href.match(/\/jobs\/(\d+)/);
         if (match) id = match[1];
       }
+      if (!id && card.getAttribute('data-job-id')) {
+        id = card.getAttribute('data-job-id')!;
+      }
       if (!id) {
-        id = `wf_${i}_${title}_${company}`;
+        id = `wf_${i}_${Math.abs(hash(title + '_' + company))}`;
       }
 
       if (seenIds.has(id)) continue;
       seenIds.add(id);
 
       const isEasyApply =
-        !!card.querySelector('button[data-test="ApplyButton"], button[data-test="QuickApplyButton"]') ||
+        !!this.findApplyButton(card) ||
         card.textContent?.toLowerCase().includes('apply') ||
         false;
 
@@ -504,7 +674,7 @@ export class WellfoundAdapter extends JobPlatformAdapter {
       );
       let cardPostedDate = dateEl?.textContent?.trim() || '';
       if (!cardPostedDate) {
-        const spans = Array.from(card.querySelectorAll('span'));
+        const spans = Array.from(card.querySelectorAll('span, div'));
         for (const s of spans) {
           const st = s.textContent?.trim() || '';
           if (/(?:ago|today|just posted|\d+[wdm])/i.test(st) && st.length < 35 && !st.includes('$')) {
@@ -528,32 +698,100 @@ export class WellfoundAdapter extends JobPlatformAdapter {
   }
 
   async selectSearchResultCard(index: number): Promise<{ success: boolean; job?: ScrapedJob }> {
-    const rawCards = Array.from(
-      document.querySelectorAll<HTMLElement>(
-        '[data-test="StartupResult"], div[class*="styles_result__"], [data-test="JobListing"], div[class*="styles_jobListing__"], div[data-test="job-listing"], div.styles_jobListing__'
-      )
-    );
+    // Dismiss any modal/dialog that might be lingering from a previous application
+    await this.closeAnyOpenModal();
 
+    const rawCards = this.getJobCardElements();
     const card = rawCards[index];
     if (!card) return { success: false };
 
     card.scrollIntoView({ behavior: 'smooth', block: 'center' });
     await randomDelay(300, 600);
 
-    const link = card.querySelector<HTMLElement>('a[href*="/jobs/"], [data-test="JobTitle"]') || card;
-    await simulateClick(link);
+    // Store card reference for executeApplyStep
+    this.selectedCard = card;
 
-    await randomDelay(1800, 2600);
-    const job = await this.parseCurrentJob();
+    // DO NOT click anchor 'a[href*="/jobs/"]' as it navigates away and destroys the content script session!
+    const titleEl = card.querySelector<HTMLElement>(
+      '[data-test="JobTitle"], a[href*="/jobs/"], .styles_title__2_jV3, span[class*="title"], h3[class*="title"], h4'
+    );
+    const link = card.querySelector<HTMLAnchorElement>('a[href*="/jobs/"]');
+    let title = titleEl?.textContent?.trim() || link?.textContent?.trim() || 'Software Engineer';
+    if (title.toLowerCase().includes('search for jobs') || title.toLowerCase().startsWith('jobs in')) {
+      title = 'Software Engineer';
+    }
+
+    const startupContainer =
+      card.closest<HTMLElement>('[data-test="StartupResult"], div[class*="styles_result__"]') || card;
+    const company = this.extractCompanyName(startupContainer);
+
+    let externalJobId = '';
+    if (link?.href) {
+      const match = link.href.match(/\/jobs\/(\d+)/);
+      if (match) externalJobId = match[1];
+    }
+    if (!externalJobId && card.getAttribute('data-job-id')) {
+      externalJobId = card.getAttribute('data-job-id')!;
+    }
+    if (!externalJobId) {
+      externalJobId = `wf_${index}_${Math.abs(hash(title + '_' + company))}`;
+    }
+
+    const locationEl = card.querySelector<HTMLElement>(
+      '[data-test="JobLocation"], .styles_location__3B, span[class*="location"], .text-sm.text-neutral-500'
+    );
+    const location = locationEl?.textContent?.trim() || 'Remote';
+
+    const descEl = card.querySelector<HTMLElement>(
+      '[data-test="JobDescription"], .styles_description__3w17, div[class*="description"], p'
+    );
+    const jobDescription = descEl?.textContent?.trim() || `${title} at ${company}`;
+
+    const dateEl = card.querySelector(
+      '[data-test="JobListingPostingDate"], time, span[class*="listingDate"], span[class*="posted"]'
+    );
+    let postedDate = dateEl?.textContent?.trim() || '';
+    if (!postedDate) {
+      const spans = Array.from(card.querySelectorAll('span, div'));
+      for (const s of spans) {
+        const st = s.textContent?.trim() || '';
+        if (/(?:ago|today|just posted|\d+[wdm])/i.test(st) && st.length < 35 && !st.includes('$')) {
+          postedDate = st;
+          break;
+        }
+      }
+    }
+
+    const applyBtn = this.findApplyButton(card);
+    const canEasyApply = !!applyBtn || card.textContent?.toLowerCase().includes('apply') || false;
+
+    const job: ScrapedJob = {
+      platform: 'wellfound',
+      externalJobId,
+      title,
+      company,
+      location,
+      jobUrl: link?.href || window.location.href,
+      jobDescription,
+      extractedContacts: extractContactsFromJob(jobDescription),
+      canEasyApply,
+      postedDate: postedDate || undefined,
+    };
+
+    this.selectedJob = job;
+
     return {
-      success: !!job,
-      job: job || undefined,
+      success: true,
+      job,
     };
   }
 
   async clickNextPage(): Promise<boolean> {
+    this.selectedCard = null;
+    this.selectedJob = null;
+
     const nextBtn = document.querySelector<HTMLElement>(
-      'button[data-test="load-more"], button[data-test="NextPage"], button[aria-label="Next"]'
+      'button[data-test="load-more"], button[data-test="NextPage"], button[aria-label="Next"], button[aria-label="Next Page"]'
     );
     if (nextBtn) {
       nextBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });

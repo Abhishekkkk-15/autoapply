@@ -958,16 +958,28 @@ export default defineBackground(() => {
             currentStepMessage: `[P${currentPage} | Card ${cardIdx + 1}/${totalCards}] Opening "${card?.title || 'Job'}"...`,
           });
 
-          // Select card
+          // Select card with retry for connection or hydration delays
           let selectRes: any = null;
-          try {
-            selectRes = await chrome.tabs.sendMessage(tabId, {
-              type: 'SELECT_SEARCH_RESULT_CARD',
-              payload: { index: cardIdx },
-            } as ExtensionMessage);
-          } catch (err: any) {
-            await recordLog('warn', `Failed to click card ${cardIdx + 1}: ${err.message}`);
-            continue;
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              selectRes = await chrome.tabs.sendMessage(tabId, {
+                type: 'SELECT_SEARCH_RESULT_CARD',
+                payload: { index: cardIdx },
+              } as ExtensionMessage);
+              break;
+            } catch (err: any) {
+              if (
+                attempt === 0 &&
+                (err.message?.includes('Receiving end') || err.message?.includes('Could not establish connection'))
+              ) {
+                await recordLog('info', `Tab reconnecting before card ${cardIdx + 1}. Waiting...`);
+                await waitForTabComplete(tabId, 5000);
+                await delay(1500);
+              } else {
+                await recordLog('warn', `Failed to click card ${cardIdx + 1}: ${err.message}`);
+                break;
+              }
+            }
           }
 
           if (!selectRes?.success || !selectRes?.job) {

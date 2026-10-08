@@ -34,14 +34,40 @@ export default function App() {
       }
     });
     chrome.runtime.sendMessage({ type: 'GET_MCP_STATUS' } as ExtensionMessage, (res) => {
-      if (res?.connected) {
-        setMcpConnected(true);
+      if (res) {
+        setMcpConnected(!!res.connected);
       }
     });
   };
 
   useEffect(() => {
     fetchState();
+
+    let port: chrome.runtime.Port | null = null;
+    let keepAliveTimer: any = null;
+
+    const connectPort = () => {
+      try {
+        port = chrome.runtime.connect({ name: 'sidepanel-keepalive' });
+        port.onDisconnect.addListener(() => {
+          port = null;
+          keepAliveTimer = setTimeout(connectPort, 2000);
+        });
+      } catch (err) {
+        console.warn('Keepalive port error:', err);
+      }
+    };
+
+    connectPort();
+
+    const pingInterval = setInterval(() => {
+      if (port) {
+        try {
+          port.postMessage({ type: 'PING' });
+        } catch {}
+      }
+      fetchState();
+    }, 10000);
 
     const listener = (message: ExtensionMessage) => {
       if (message.type === 'STATE_UPDATE') {
@@ -54,6 +80,13 @@ export default function App() {
 
     return () => {
       chrome.runtime.onMessage.removeListener(listener);
+      clearInterval(pingInterval);
+      if (keepAliveTimer) clearTimeout(keepAliveTimer);
+      if (port) {
+        try {
+          port.disconnect();
+        } catch {}
+      }
     };
   }, []);
 

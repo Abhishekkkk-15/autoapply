@@ -19,6 +19,7 @@ export class ExtensionMcpBridge {
   private ws: WebSocket | null = null;
   private isConnecting = false;
   private reconnectTimer: any = null;
+  private pingTimer: any = null;
   private port = 8765;
   private status: McpBridgeStatus = {
     connected: false,
@@ -96,6 +97,13 @@ export class ExtensionMcpBridge {
         this.isConnecting = false;
         this.notifyState();
 
+        if (this.pingTimer) clearInterval(this.pingTimer);
+        this.pingTimer = setInterval(() => {
+          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.send({ type: 'PING', id: Date.now().toString() });
+          }
+        }, 15000);
+
         // Send handshake
         this.send({
           type: 'EXTENSION_HELLO',
@@ -121,6 +129,10 @@ export class ExtensionMcpBridge {
       };
 
       this.ws.onclose = () => {
+        if (this.pingTimer) {
+          clearInterval(this.pingTimer);
+          this.pingTimer = null;
+        }
         this.status.connected = false;
         this.isConnecting = false;
         this.notifyState();
@@ -128,11 +140,19 @@ export class ExtensionMcpBridge {
       };
 
       this.ws.onerror = () => {
+        if (this.pingTimer) {
+          clearInterval(this.pingTimer);
+          this.pingTimer = null;
+        }
         this.status.connected = false;
         this.isConnecting = false;
         this.notifyState();
       };
     } catch {
+      if (this.pingTimer) {
+        clearInterval(this.pingTimer);
+        this.pingTimer = null;
+      }
       this.status.connected = false;
       this.isConnecting = false;
       this.scheduleReconnect();
@@ -143,6 +163,10 @@ export class ExtensionMcpBridge {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
     }
     if (this.ws) {
       this.ws.close();

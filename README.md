@@ -111,6 +111,7 @@ Once connected, your coding agent can inspect, guide, and autonomously control j
 | `autoapply_save_job_artifacts` | `platform`, `externalJobId`, `coldEmail?`, `coverLetter?`, `pitchNote?`, `linkedinConnectionNote?`, `notes?`, `status?` | Saves agent-generated cold outreach emails, LinkedIn connection notes, and candidate fit scores directly into the applied job database record. |
 | `autoapply_queue_control` | `action` (`'start'` \| `'pause'` \| `'resume'` \| `'stop'`) | Controls bulk queue navigation across search results. |
 | `autoapply_search_and_apply` | `query`, `location?`, `platform?`, `mode?`, `maxJobs?`, `remoteOnly?` | Autonomously initiates a platform search with Easy-Apply and Remote filters, iterates through search result cards, evaluates candidate fit, handles pagination, and applies across multiple pages. |
+| `autoapply_parse_resume` | `resumeText`, `autoSave?` (boolean, default: `true`) | Parses candidate resume text or markdown, extracts all contact info, links, experience years, skills, and target roles, and auto-populates the candidate profile. |
 
 ---
 
@@ -192,6 +193,7 @@ auto-apply-ai/
 │   │   ├── ai.ts                      # Universal LLM client & deterministic fallback heuristics
 │   │   ├── dom-utils.ts               # Synthetic event dispatchers, scroll/click jitter, wait helpers
 │   │   ├── extractor.ts               # Heuristic extractors for RFC 5322 emails and recruiter profiles
+│   │   ├── resume-parser.ts           # PDF/TXT/MD text extractor, heuristic detail parser, and AI refiner
 │   │   └── types.ts                   # Universal interfaces and data models
 ├── scripts/
 │   └── sanitize-encoding.js           # Post-build Chromium UTF-8 sanitizer

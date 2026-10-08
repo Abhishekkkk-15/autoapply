@@ -76,6 +76,12 @@ When AutoApply AI is registered as an MCP server in your environment, you have d
   - `maxJobs` (`number`, default `10`): Application ceiling for this search session.
   - `remoteOnly` (`boolean`, default `false`): Restrict search results to remote roles.
 
+#### 10. `autoapply_parse_resume`
+- **Description:** Ingests raw resume text or markdown, automatically extracts candidate contact information, social links (LinkedIn, GitHub, Portfolio), location, calculated years of experience, key technical skills, and target roles whitelist, and optionally updates the candidate profile in storage.
+- **Parameters:**
+  - `resumeText` (`string`): Raw text or markdown content of the candidate resume.
+  - `autoSave` (`boolean`, default `true`): Whether to immediately persist the parsed fields into `chrome.storage.local`.
+
 ---
 
 ## 3. Autonomous Agent Workflow Examples

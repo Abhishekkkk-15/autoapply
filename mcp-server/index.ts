@@ -328,6 +328,42 @@ server.tool(
   }
 );
 
+// Tool: autoapply_parse_resume
+server.tool(
+  'autoapply_parse_resume',
+  'Parses candidate resume text, automatically extracts all key fields (full name, email, phone, location, LinkedIn, GitHub, portfolio, years of experience, target roles, skills, structured markdown), and optionally updates the candidate profile.',
+  {
+    resumeText: z.string().describe('Raw plain text or markdown of the candidate resume to parse'),
+    autoSave: z.boolean().default(true).describe('Whether to automatically update the candidate profile in extension storage'),
+  },
+  async ({ resumeText, autoSave }) => {
+    try {
+      const result = await callExtension('PARSE_RESUME_TEXT', { resumeText, autoSave });
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(
+              {
+                success: true,
+                message: 'Resume parsed and profile updated successfully.',
+                result,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    } catch (err: any) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Failed to parse resume: ${err.message}` }],
+      };
+    }
+  }
+);
+
 // Tool: autoapply_approve_pending
 server.tool(
   'autoapply_approve_pending',

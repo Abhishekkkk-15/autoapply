@@ -12,13 +12,22 @@ import {
   Briefcase,
   X,
   Clock,
+  FileUp,
+  Upload,
+  Sparkles,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import type { UserProfile, CustomQuestionAnswer } from '@/src/lib/types';
 import { getUserProfile, saveUserProfile, DEFAULT_USER_PROFILE } from '@/src/lib/db';
+import { parseResumeFile, type ExtractedResumeDetails } from '@/src/lib/resume-parser';
 
 export const ProfileManager: React.FC = () => {
   const [profile, setProfile] = useState<UserProfile>(DEFAULT_USER_PROFILE);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractError, setExtractError] = useState<string | null>(null);
+  const [extractedSummary, setExtractedSummary] = useState<ExtractedResumeDetails | null>(null);
   const [newRoleInput, setNewRoleInput] = useState('');
   const [newCompanyInput, setNewCompanyInput] = useState('');
   const [newPattern, setNewPattern] = useState('');
@@ -35,6 +44,49 @@ export const ProfileManager: React.FC = () => {
     await saveUserProfile(profile);
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 2500);
+  };
+
+  const handleResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsExtracting(true);
+    setExtractError(null);
+
+    try {
+      const { details } = await parseResumeFile(file);
+
+      const updated: UserProfile = {
+        ...profile,
+        fullName: details.fullName || profile.fullName,
+        email: details.email || profile.email,
+        phone: details.phone || profile.phone,
+        currentLocation: details.currentLocation || profile.currentLocation,
+        portfolioUrl: details.portfolioUrl || profile.portfolioUrl,
+        linkedinUrl: details.linkedinUrl || profile.linkedinUrl,
+        githubUrl: details.githubUrl || profile.githubUrl,
+        yearsOfExperience: details.yearsOfExperience || profile.yearsOfExperience,
+        resumeMarkdown: details.resumeMarkdown || profile.resumeMarkdown,
+        jobPreferences: {
+          ...profile.jobPreferences,
+          targetRoles: details.targetRoles.length
+            ? Array.from(new Set([...(profile.jobPreferences?.targetRoles || []), ...details.targetRoles]))
+            : profile.jobPreferences?.targetRoles || [],
+        },
+      };
+
+      setProfile(updated);
+      await saveUserProfile(updated);
+      setExtractedSummary(details);
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 3500);
+    } catch (err: any) {
+      console.error('[ProfileManager] Resume extraction failed:', err);
+      setExtractError(err.message || 'Failed to parse resume.');
+    } finally {
+      setIsExtracting(false);
+      e.target.value = '';
+    }
   };
 
   const handleResetToDefault = async () => {
@@ -152,6 +204,120 @@ export const ProfileManager: React.FC = () => {
             )}
           </button>
         </div>
+      </div>
+
+      {/* Resume Import & Auto-Fill Card */}
+      <div className="bg-gradient-to-br from-indigo-50/90 via-blue-50/70 to-slate-50 border border-blue-200/90 rounded-xl p-3.5 shadow-sm flex flex-col gap-2.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-sm">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                Import from Resume
+                <span className="text-[10px] bg-blue-100 text-blue-700 font-semibold px-1.5 py-0.5 rounded-full">
+                  Auto-Fill
+                </span>
+              </h3>
+              <p className="text-[11px] text-slate-500">
+                Upload PDF, Markdown, or TXT to extract all details
+              </p>
+            </div>
+          </div>
+
+          <label className="cursor-pointer inline-flex items-center gap-1.5 py-1.5 px-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-sm transition active:scale-95 disabled:opacity-50">
+            {isExtracting ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Parsing...</span>
+              </>
+            ) : (
+              <>
+                <FileUp className="w-3.5 h-3.5" />
+                <span>Upload Resume</span>
+              </>
+            )}
+            <input
+              type="file"
+              accept=".pdf,.txt,.md,text/plain,application/pdf"
+              className="hidden"
+              onChange={handleResumeUpload}
+              disabled={isExtracting}
+            />
+          </label>
+        </div>
+
+        {extractError && (
+          <div className="flex items-center gap-2 p-2 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{extractError}</span>
+          </div>
+        )}
+
+        {extractedSummary && (
+          <div className="flex flex-col gap-1.5 p-2.5 bg-white/90 border border-blue-100 rounded-lg text-xs">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-800 flex items-center gap-1 text-[11px]">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                Extracted & Auto-Filled Details
+              </span>
+              <button
+                onClick={() => setExtractedSummary(null)}
+                className="text-[10px] text-slate-400 hover:text-slate-600"
+              >
+                Dismiss
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1.5 text-[10px]">
+              {extractedSummary.fullName && (
+                <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-100 font-medium">
+                  👤 {extractedSummary.fullName}
+                </span>
+              )}
+              {extractedSummary.email && (
+                <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-100 font-medium">
+                  ✉️ {extractedSummary.email}
+                </span>
+              )}
+              {extractedSummary.phone && (
+                <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-100 font-medium">
+                  📞 {extractedSummary.phone}
+                </span>
+              )}
+              {extractedSummary.currentLocation && (
+                <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-100 font-medium">
+                  📍 {extractedSummary.currentLocation}
+                </span>
+              )}
+              {extractedSummary.linkedinUrl && (
+                <span className="px-2 py-0.5 bg-sky-50 text-sky-700 rounded border border-sky-100 font-medium">
+                  💼 LinkedIn
+                </span>
+              )}
+              {extractedSummary.githubUrl && (
+                <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded border border-purple-100 font-medium">
+                  🐙 GitHub
+                </span>
+              )}
+              {extractedSummary.portfolioUrl && (
+                <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded border border-indigo-100 font-medium">
+                  🌐 Portfolio
+                </span>
+              )}
+              {extractedSummary.yearsOfExperience > 0 && (
+                <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded border border-amber-100 font-medium">
+                  ⏱️ {extractedSummary.yearsOfExperience} yrs exp
+                </span>
+              )}
+              {extractedSummary.targetRoles?.slice(0, 3).map((role) => (
+                <span key={role} className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded border border-emerald-100 font-medium">
+                  🎯 {role}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Navigation Sub-Tabs */}
@@ -564,6 +730,17 @@ export const ProfileManager: React.FC = () => {
                 Resume Markdown Context
               </h3>
             </div>
+            <label className="cursor-pointer text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 py-1 px-2 hover:bg-blue-50 rounded-md transition">
+              <Upload className="w-3.5 h-3.5" />
+              <span>{isExtracting ? 'Importing...' : 'Import Resume File'}</span>
+              <input
+                type="file"
+                accept=".pdf,.txt,.md,text/plain,application/pdf"
+                className="hidden"
+                onChange={handleResumeUpload}
+                disabled={isExtracting}
+              />
+            </label>
           </div>
           <p className="text-[11px] text-slate-500">
             The AI reads this raw text when crafting customized cover letters, answering

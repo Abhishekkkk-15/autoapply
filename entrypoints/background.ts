@@ -20,6 +20,7 @@ import {
   addLog,
   getAppSettings,
   getUserProfile,
+  saveUserProfile,
   incrementDailyApplications,
 } from '@/src/lib/db';
 import { generatePitchAndLetter, generateColdOutreach } from '@/src/lib/ai';
@@ -226,6 +227,37 @@ export default defineBackground(() => {
     };
   });
 
+  mcpBridge.registerHandler('PARSE_RESUME_TEXT', async (payload: { resumeText: string; autoSave?: boolean }) => {
+    const { extractResumeDetailsHeuristic } = await import('@/src/lib/resume-parser');
+    const details = extractResumeDetailsHeuristic(payload.resumeText || '');
+    let profile = await getUserProfile();
+
+    if (payload.autoSave !== false) {
+      profile = {
+        ...profile,
+        fullName: details.fullName || profile.fullName,
+        email: details.email || profile.email,
+        phone: details.phone || profile.phone,
+        currentLocation: details.currentLocation || profile.currentLocation,
+        portfolioUrl: details.portfolioUrl || profile.portfolioUrl,
+        linkedinUrl: details.linkedinUrl || profile.linkedinUrl,
+        githubUrl: details.githubUrl || profile.githubUrl,
+        yearsOfExperience: details.yearsOfExperience || profile.yearsOfExperience,
+        resumeMarkdown: details.resumeMarkdown || profile.resumeMarkdown,
+        jobPreferences: {
+          ...profile.jobPreferences,
+          targetRoles: details.targetRoles.length
+            ? Array.from(new Set([...(profile.jobPreferences?.targetRoles || []), ...details.targetRoles]))
+            : profile.jobPreferences?.targetRoles || [],
+        },
+      };
+      await saveUserProfile(profile);
+      await recordLog('info', `Candidate profile auto-filled from resume for "${profile.fullName}".`);
+    }
+
+    return { details, profile };
+  });
+
   mcpBridge.setOnStateChange((mcpStatus) => {
     chrome.runtime.sendMessage({
       type: 'MCP_STATUS_UPDATE',
@@ -234,6 +266,37 @@ export default defineBackground(() => {
   });
 
   mcpBridge.connect();
+
+  // Persistent keep-alive port from Side Panel to maintain service worker & MCP connection
+  chrome.runtime.onConnect.addListener((port) => {
+    if (port.name === 'sidepanel-keepalive') {
+      if (!mcpBridge.getStatus().connected) {
+        mcpBridge.connect();
+      }
+      port.onMessage.addListener((msg) => {
+        if (msg.type === 'PING') {
+          try {
+            port.postMessage({ type: 'PONG' });
+          } catch {}
+          if (!mcpBridge.getStatus().connected) {
+            mcpBridge.connect();
+          }
+        }
+      });
+    }
+  });
+
+  // Reconnect MCP bridge on tab navigation or activation
+  chrome.tabs.onActivated.addListener(() => {
+    if (!mcpBridge.getStatus().connected) {
+      mcpBridge.connect();
+    }
+  });
+  chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
+    if (changeInfo.status === 'complete' && !mcpBridge.getStatus().connected) {
+      mcpBridge.connect();
+    }
+  });
 
   // Message listener
   chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {

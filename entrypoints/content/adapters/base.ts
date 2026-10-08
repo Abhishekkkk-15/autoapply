@@ -49,6 +49,13 @@ export abstract class JobPlatformAdapter {
   ): Promise<ApplyStepResult>;
 
   /**
+   * Directly submits an application modal that is currently paused at the review/pending approval step.
+   */
+  async submitPendingApproval(profile: UserProfile): Promise<ApplyStepResult> {
+    return this.executeApplyStep(profile, false);
+  }
+
+  /**
    * Returns list of visible job cards on search page
    */
   getSearchResultCards(): SearchCardInfo[] {

@@ -164,10 +164,20 @@ export default defineBackground(() => {
       activeTabId = tab?.id || null;
     }
     if (!activeTabId) throw new Error('No active browser tab.');
+    let job = state.currentJob;
+    if (!job) {
+      try {
+        const check = await chrome.tabs.sendMessage(activeTabId, { type: 'CHECK_TAB_PLATFORM' });
+        if (check?.job) {
+          job = check.job;
+          state.currentJob = job;
+        }
+      } catch {}
+    }
     const res = await chrome.tabs.sendMessage(activeTabId, { type: 'SUBMIT_PENDING_APPROVAL' });
-    await handleApplyStepResult(res, state.currentJob);
+    await handleApplyStepResult(res, job || state.currentJob);
     if (pendingApprovalResolver) {
-      pendingApprovalResolver('approved');
+      pendingApprovalResolver(res?.status === 'SUBMITTED' ? 'approved' : 'cancelled');
       pendingApprovalResolver = null;
     }
     return res;
@@ -404,16 +414,33 @@ export default defineBackground(() => {
           }
           if (activeTabId) {
             try {
+              let job = state.currentJob;
+              if (!job) {
+                try {
+                  const check = await chrome.tabs.sendMessage(activeTabId, { type: 'CHECK_TAB_PLATFORM' });
+                  if (check?.job) {
+                    job = check.job;
+                    state.currentJob = job;
+                  }
+                } catch {}
+              }
+
               const res = await chrome.tabs.sendMessage(activeTabId, {
                 type: 'SUBMIT_PENDING_APPROVAL',
               } as ExtensionMessage);
-              await handleApplyStepResult(res, state.currentJob);
+
+              await handleApplyStepResult(res, job || state.currentJob);
               if (pendingApprovalResolver) {
-                pendingApprovalResolver('approved');
+                pendingApprovalResolver(res?.status === 'SUBMITTED' ? 'approved' : 'cancelled');
                 pendingApprovalResolver = null;
               }
               sendResponse(res);
             } catch (err: any) {
+              await updateState({
+                status: 'ERROR',
+                lastError: err.message,
+                currentStepMessage: `Approval error: ${err.message}`,
+              });
               sendResponse({ status: 'FAILED', message: err.message });
             }
           } else {
@@ -646,7 +673,23 @@ export default defineBackground(() => {
         currentStepMessage: `Failed: ${result.message}`,
       });
       await recordLog('error', `Apply failed: ${result.message}`);
+      return;
     }
+
+    if (result.status === 'STEP_ADVANCED') {
+      await updateState({
+        status: 'IDLE',
+        currentStepMessage: result.message || 'Advanced through application step.',
+      });
+      await recordLog('info', `Apply step result: ${result.message}`);
+      return;
+    }
+
+    // Default fallback for any other unexpected status
+    await updateState({
+      status: 'IDLE',
+      currentStepMessage: result.message || `Application process finished with status: ${result.status}`,
+    });
   }
 
   async function saveJobAndArtifacts(
@@ -991,8 +1034,20 @@ export default defineBackground(() => {
             if (action === 'approved') {
               totalAppliedInRun++;
               state.processedCount = totalAppliedInRun;
+              if (isSearchRunning && totalAppliedInRun < maxJobs) {
+                await updateState({
+                  status: 'RUNNING',
+                  currentStepMessage: `Approved! Submitted application for "${job.title}". Continuing search...`,
+                });
+              }
             } else {
               await recordLog('info', `Cancelled approval for "${job.title}"`);
+              if (isSearchRunning && totalAppliedInRun < maxJobs) {
+                await updateState({
+                  status: 'RUNNING',
+                  currentStepMessage: `Cancelled approval for "${job.title}". Continuing search...`,
+                });
+              }
             }
           } else if (applyRes?.status === 'SUBMITTED') {
             totalAppliedInRun++;

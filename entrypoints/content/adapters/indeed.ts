@@ -260,12 +260,48 @@ export class IndeedAdapter extends JobPlatformAdapter {
     );
   }
 
+  /**
+   * Directly submits an application modal that is currently paused at the review step on Indeed.
+   */
+  async submitPendingApproval(profile: UserProfile): Promise<ApplyStepResult> {
+    const container = this.getApplyContainer() || document.body;
+    let submitBtn = this.findSubmitButton(container);
+    if (!submitBtn) {
+      const reviewBtn = this.findReviewButton(container);
+      if (reviewBtn) {
+        await simulateClick(reviewBtn);
+        await randomDelay(1200, 2000);
+        submitBtn = this.findSubmitButton(container);
+      }
+    }
+
+    if (submitBtn) {
+      await simulateClick(submitBtn);
+      await randomDelay(2000, 3000);
+      return {
+        status: 'SUBMITTED',
+        message: 'Application submitted on Indeed.',
+      };
+    }
+
+    return this.executeApplyStep(profile, false);
+  }
+
   private findSubmitButton(container: HTMLElement): HTMLElement | null {
-    const buttons = Array.from(container.querySelectorAll<HTMLElement>('button'));
+    const buttons = Array.from(container.querySelectorAll<HTMLElement>('button, a[role="button"]'));
     return (
       buttons.find((b) => {
         const txt = b.textContent?.trim().toLowerCase() || '';
-        return txt.includes('submit your application') || txt.includes('submit');
+        const aria = b.getAttribute('aria-label')?.toLowerCase() || '';
+        const isSubmit =
+          txt.includes('submit') ||
+          aria.includes('submit') ||
+          txt.includes('apply now') ||
+          aria.includes('apply now') ||
+          txt.includes('send application') ||
+          aria.includes('send application');
+        const isBack = txt.includes('back') || aria.includes('back');
+        return isSubmit && !isBack;
       }) || null
     );
   }

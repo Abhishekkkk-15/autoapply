@@ -116,9 +116,8 @@ export default defineContentScript({
         (async () => {
           try {
             const profile = await getUserProfile();
-            // Force full-auto execution of the final submission
             if (adapter) {
-              const result = await adapter.executeApplyStep(profile, false);
+              const result = await adapter.submitPendingApproval(profile);
               sendResponse(result);
             } else {
               sendResponse({ status: 'FAILED', message: 'No adapter active.' });

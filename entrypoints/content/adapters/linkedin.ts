@@ -186,8 +186,19 @@ export class LinkedInAdapter extends JobPlatformAdapter {
     // Check if modal is already open
     let modal = this.getModalElement();
 
-    // If modal is not open, click the Easy Apply button
+    // If modal is not open, check preferences and click the Easy Apply button
     if (!modal) {
+      const initialJob = await this.parseCurrentJob();
+      if (initialJob) {
+        const pref = this.matchesPreferences(initialJob, activeProfile);
+        if (!pref.allow) {
+          return {
+            status: 'SKIPPED',
+            message: pref.reason || 'Skipped per user preference.',
+          };
+        }
+      }
+
       const applyBtn = this.findEasyApplyButton();
       if (!applyBtn) {
         return {
@@ -263,24 +274,18 @@ export class LinkedInAdapter extends JobPlatformAdapter {
 
       // Check if Review button is available
       if (reviewBtn) {
+        await simulateClick(reviewBtn);
+        await randomDelay(1200, 2000);
         if (isSemiAuto) {
-          // If semi-auto, we can either click review and pause, or pause here
-          await simulateClick(reviewBtn);
-          await randomDelay(1000, 1800);
-          const finalSubmitBtn = this.findSubmitButton(currentModal);
-          if (finalSubmitBtn) {
-            this.highlightModalForApproval(currentModal);
-            playAlertBeep();
-            return {
-              status: 'PENDING_APPROVAL',
-              needsUserApproval: true,
-              stepName: 'Final Review',
-              message: 'Reached Review step. Please review and approve application submission.',
-            };
-          }
+          this.highlightModalForApproval(currentModal);
+          playAlertBeep();
+          return {
+            status: 'PENDING_APPROVAL',
+            needsUserApproval: true,
+            stepName: 'Final Review',
+            message: 'Reached Review step. Please review and approve application submission.',
+          };
         } else {
-          await simulateClick(reviewBtn);
-          await randomDelay(1000, 1800);
           continue;
         }
       }
@@ -312,24 +317,158 @@ export class LinkedInAdapter extends JobPlatformAdapter {
         continue;
       }
 
+      // Fallback: If no button found, try scrolling to bottom of modal and re-check
+      currentModal.scrollTo({ top: currentModal.scrollHeight, behavior: 'smooth' });
+      await randomDelay(600, 1000);
+      const retrySubmit = this.findSubmitButton(currentModal);
+      if (retrySubmit) {
+        if (isSemiAuto) {
+          this.highlightModalForApproval(currentModal);
+          playAlertBeep();
+          return {
+            status: 'PENDING_APPROVAL',
+            needsUserApproval: true,
+            stepName: 'Review and Submit',
+            message: 'Application reached final Review step. Awaiting user approval to submit.',
+          };
+        } else {
+          await simulateClick(retrySubmit);
+          await randomDelay(1500, 2500);
+          await this.closeSuccessModalIfOpen();
+          return {
+            status: 'SUBMITTED',
+            message: 'Application submitted successfully via Easy Apply.',
+          };
+        }
+      }
+
       // No Next, Review, or Submit button found
       break;
     }
 
+    if (this.getModalElement()) {
+      return {
+        status: 'FAILED',
+        message: 'Application reached an unhandled step or submit button could not be located.',
+      };
+    }
+
     return {
-      status: 'STEP_ADVANCED',
-      message: 'Reached current step in LinkedIn application process.',
+      status: 'SUBMITTED',
+      message: 'Application modal was completed and closed.',
     };
   }
 
-  private getModalElement(): HTMLElement | null {
-    return document.querySelector<HTMLElement>(
-      '.jobs-easy-apply-modal, div[data-view-name="job-details-easy-apply-modal"], div.artdeco-modal[role="dialog"]'
+  /**
+   * Directly submits an application modal that is currently paused at the review step.
+   */
+  async submitPendingApproval(_profile: UserProfile): Promise<ApplyStepResult> {
+    const modal = this.getModalElement();
+    if (!modal) {
+      return {
+        status: 'FAILED',
+        message: 'Could not find open application modal on LinkedIn.',
+      };
+    }
+
+    // 1. Check for any validation errors
+    const hasErrors = Array.from(
+      modal.querySelectorAll<HTMLElement>(
+        '.artdeco-inline-feedback--error, .fb-form-element--error, [aria-invalid="true"]'
+      )
+    );
+    if (hasErrors.length > 0) {
+      const firstErrEl = hasErrors[0];
+      const label = this.resolveLabelForElement(firstErrEl) || 'Required field';
+      const feedback = firstErrEl.textContent?.trim().replace(/\s+/g, ' ') || 'Validation error';
+      this.highlightModalForApproval(modal);
+      playAlertBeep();
+      return {
+        status: 'PENDING_APPROVAL',
+        needsUserApproval: true,
+        stepName: 'Validation Error',
+        message: `Field "${label}" needs attention: ${feedback}`,
+      };
+    }
+
+    // 2. If review button is visible, click it first to advance to submit step
+    const reviewBtn = this.findReviewButton(modal);
+    if (reviewBtn) {
+      await simulateClick(reviewBtn);
+      await randomDelay(1200, 2000);
+    }
+
+    // 3. Find the submit button
+    let submitBtn = this.findSubmitButton(modal);
+
+    // If not found yet, try scrolling the modal to bottom
+    if (!submitBtn) {
+      modal.scrollTo({ top: modal.scrollHeight, behavior: 'smooth' });
+      await randomDelay(600, 1000);
+      submitBtn = this.findSubmitButton(modal);
+    }
+
+    // If still not found, check footer primary button as fallback
+    if (!submitBtn) {
+      const footerPrimary = modal.querySelector<HTMLElement>(
+        'footer button.artdeco-button--primary, .jobs-easy-apply-footer button.artdeco-button--primary, button[data-easy-apply-next-button]'
+      );
+      if (footerPrimary) {
+        submitBtn = footerPrimary;
+      }
+    }
+
+    if (!submitBtn) {
+      return {
+        status: 'FAILED',
+        message: 'Could not locate Submit button on active LinkedIn application dialog.',
+      };
+    }
+
+    // 4. Check if submit button is disabled
+    if (submitBtn.hasAttribute('disabled') || submitBtn.getAttribute('aria-disabled') === 'true') {
+      modal.scrollTo({ top: modal.scrollHeight, behavior: 'smooth' });
+      await randomDelay(600, 1000);
+      if (submitBtn.hasAttribute('disabled') || submitBtn.getAttribute('aria-disabled') === 'true') {
+        this.highlightModalForApproval(modal);
+        return {
+          status: 'PENDING_APPROVAL',
+          needsUserApproval: true,
+          stepName: 'Disabled Submit Button',
+          message: 'Submit button is disabled. Please verify all required fields or checkboxes in the dialog.',
+        };
+      }
+    }
+
+    // 5. Click the submit button
+    await simulateClick(submitBtn);
+    await randomDelay(2000, 3000);
+    await this.closeSuccessModalIfOpen();
+
+    return {
+      status: 'SUBMITTED',
+      message: 'Application submitted successfully via Easy Apply.',
+    };
+  }
+
+  getModalElement(): HTMLElement | null {
+    const primary = document.querySelector<HTMLElement>(
+      '.jobs-easy-apply-modal, div[data-view-name="job-details-easy-apply-modal"], div[data-easy-apply-modal], .artdeco-modal'
+    );
+    if (primary) return primary;
+
+    const dialogs = Array.from(document.querySelectorAll<HTMLElement>('div[role="dialog"]'));
+    return (
+      dialogs.find((d) =>
+        d.querySelector(
+          '.jobs-easy-apply-footer, button[data-easy-apply-next-button], .jobs-easy-apply-form-section__grouping, [data-test-modal-id]'
+        )
+      ) || null
     );
   }
 
-  private findNextButton(modal: HTMLElement): HTMLElement | null {
-    const buttons = Array.from(modal.querySelectorAll<HTMLElement>('button'));
+  findNextButton(modal: HTMLElement): HTMLElement | null {
+    const buttons = Array.from(modal.querySelectorAll<HTMLElement>('button, a[role="button"]'));
     return (
       buttons.find((b) => {
         const text = b.textContent?.trim().toLowerCase() || '';
@@ -337,32 +476,81 @@ export class LinkedInAdapter extends JobPlatformAdapter {
         return (
           (text.includes('next') || aria.includes('continue to next step') || aria.includes('next')) &&
           !text.includes('review') &&
-          !text.includes('submit')
+          !aria.includes('review') &&
+          !text.includes('submit') &&
+          !aria.includes('submit')
         );
       }) || null
     );
   }
 
-  private findReviewButton(modal: HTMLElement): HTMLElement | null {
-    const buttons = Array.from(modal.querySelectorAll<HTMLElement>('button'));
+  findReviewButton(modal: HTMLElement): HTMLElement | null {
+    const buttons = Array.from(modal.querySelectorAll<HTMLElement>('button, a[role="button"]'));
     return (
       buttons.find((b) => {
         const text = b.textContent?.trim().toLowerCase() || '';
         const aria = b.getAttribute('aria-label')?.toLowerCase() || '';
-        return text.includes('review') || aria.includes('review your application');
+        return (
+          (text.includes('review') || aria.includes('review')) &&
+          !text.includes('submit') &&
+          !aria.includes('submit')
+        );
       }) || null
     );
   }
 
-  private findSubmitButton(modal: HTMLElement): HTMLElement | null {
-    const buttons = Array.from(modal.querySelectorAll<HTMLElement>('button'));
-    return (
-      buttons.find((b) => {
-        const text = b.textContent?.trim().toLowerCase() || '';
-        const aria = b.getAttribute('aria-label')?.toLowerCase() || '';
-        return text.includes('submit application') || aria.includes('submit application');
-      }) || null
+  findSubmitButton(modal: HTMLElement): HTMLElement | null {
+    const buttons = Array.from(modal.querySelectorAll<HTMLElement>('button, a[role="button"]'));
+
+    // 1. Explicit text or aria match
+    const explicit = buttons.find((b) => {
+      const text = b.textContent?.trim().toLowerCase() || '';
+      const aria = b.getAttribute('aria-label')?.toLowerCase() || '';
+      const isSubmit =
+        text.includes('submit') ||
+        aria.includes('submit') ||
+        text === 'apply' ||
+        aria === 'apply' ||
+        text.includes('apply now') ||
+        aria.includes('apply now') ||
+        text.includes('send application') ||
+        aria.includes('send application');
+
+      const isBackOrCancel =
+        text.includes('back') ||
+        aria.includes('back') ||
+        text.includes('cancel') ||
+        aria.includes('cancel') ||
+        text.includes('dismiss') ||
+        aria.includes('dismiss');
+
+      return isSubmit && !isBackOrCancel;
+    });
+
+    if (explicit) return explicit;
+
+    // 2. Primary button in footer if not next/review/back
+    const footerPrimary = modal.querySelector<HTMLElement>(
+      'footer button.artdeco-button--primary, .jobs-easy-apply-footer button.artdeco-button--primary, button[data-easy-apply-next-button]'
     );
+    if (footerPrimary) {
+      const text = footerPrimary.textContent?.trim().toLowerCase() || '';
+      const aria = footerPrimary.getAttribute('aria-label')?.toLowerCase() || '';
+      if (
+        !text.includes('next') &&
+        !aria.includes('next') &&
+        !text.includes('continue') &&
+        !aria.includes('continue') &&
+        !text.includes('review') &&
+        !aria.includes('review') &&
+        !text.includes('back') &&
+        !aria.includes('back')
+      ) {
+        return footerPrimary;
+      }
+    }
+
+    return null;
   }
 
   private async fillCurrentStepFields(
@@ -532,16 +720,27 @@ export class LinkedInAdapter extends JobPlatformAdapter {
   }
 
   private async closeSuccessModalIfOpen(): Promise<void> {
-    await randomDelay(1000, 2000);
+    await randomDelay(1200, 2200);
     const dismissBtns = Array.from(
       document.querySelectorAll<HTMLElement>(
-        'button[aria-label="Dismiss"], button.artdeco-modal__dismiss, button[data-control-name="overlay.close_btn"]'
+        'button[aria-label="Dismiss"], button.artdeco-modal__dismiss, button[data-control-name="overlay.close_btn"], button.artdeco-toast-item__dismiss'
       )
     );
     for (const btn of dismissBtns) {
       if (btn.offsetParent !== null) {
         await simulateClick(btn);
-        break;
+        return;
+      }
+    }
+
+    const modal = this.getModalElement();
+    if (modal) {
+      const doneBtn = Array.from(modal.querySelectorAll<HTMLElement>('button')).find((b) => {
+        const txt = b.textContent?.trim().toLowerCase() || '';
+        return txt === 'done' || txt === 'dismiss' || txt === 'close';
+      });
+      if (doneBtn) {
+        await simulateClick(doneBtn);
       }
     }
   }

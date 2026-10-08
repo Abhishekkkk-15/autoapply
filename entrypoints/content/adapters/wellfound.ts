@@ -215,6 +215,37 @@ export class WellfoundAdapter extends JobPlatformAdapter {
       artifacts: { pitchNote, coverLetter },
     };
   }
+
+  /**
+   * Directly submits an application modal that is currently paused at the review step on Wellfound.
+   */
+  async submitPendingApproval(profile: UserProfile): Promise<ApplyStepResult> {
+    const modal = document.querySelector<HTMLElement>('div[role="dialog"], [data-test="ApplyModal"]');
+    if (modal) {
+      const submitBtn = Array.from(modal.querySelectorAll<HTMLElement>('button, a[role="button"]')).find((b) => {
+        const txt = b.textContent?.trim().toLowerCase() || '';
+        const aria = b.getAttribute('aria-label')?.toLowerCase() || '';
+        return (
+          txt.includes('send application') ||
+          aria.includes('send application') ||
+          txt.includes('submit') ||
+          aria.includes('submit') ||
+          txt.includes('apply now') ||
+          aria.includes('apply now')
+        ) && !txt.includes('back');
+      });
+
+      if (submitBtn) {
+        await simulateClick(submitBtn);
+        await randomDelay(1500, 2500);
+        return {
+          status: 'SUBMITTED',
+          message: 'Application submitted on Wellfound.',
+        };
+      }
+    }
+    return this.executeApplyStep(profile, false);
+  }
 }
 
 function hash(s: string): number {

@@ -204,6 +204,29 @@ export class NaukriAdapter extends JobPlatformAdapter {
       message: '1-Click Application submitted on Naukri.',
     };
   }
+
+  /**
+   * Directly submits an application modal that is currently paused at the review step on Naukri.
+   */
+  async submitPendingApproval(profile: UserProfile): Promise<ApplyStepResult> {
+    const questionnaire = document.querySelector<HTMLElement>(
+      '.apply-message, .chatbot-container, .apply-questions, div[class*="questionnaire"]'
+    );
+    if (questionnaire) {
+      const subBtn = questionnaire.querySelector<HTMLElement>(
+        'button[type="submit"], button.send-btn, button'
+      );
+      if (subBtn) {
+        await simulateClick(subBtn);
+        await randomDelay(1000, 2000);
+      }
+      return {
+        status: 'SUBMITTED',
+        message: 'Questionnaire submitted on Naukri.',
+      };
+    }
+    return this.executeApplyStep(profile, false);
+  }
 }
 
 function hash(s: string): number {

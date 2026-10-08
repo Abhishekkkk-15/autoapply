@@ -19,41 +19,29 @@ This document provides complete technical context, architecture specifications, 
 │  - StdioServerTransport                                                │
 │  - Local WebSocket Bridge (ws://127.0.0.1:8765)                        │
 │  - HTTP Health & Status Endpoint (http://127.0.0.1:8765/health)        │
-│  - 16 Programmatic Autonomous Browser Tools                            │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ WebSocket RPC
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                      CHROME EXTENSION RUNTIME                          │
-│                                                                        │
-│  ┌────────────────────────┐         ┌───────────────────────────────┐  │
-│  │   Side Panel (React)   │         │     Background Service Worker │  │
-│  │  - ControllerBar       │◄───────►│  - State Machine Coordinator  │  │
-│  │  - ProfileManager      │ runtime │  - Rate Limiter & Safety Cap  │  │
-│  │  - JobTrackerTable     │ messaging│ - ExtensionMcpBridge Client │  │
-│  │    (Gmail & LinkedIn   │         │  - Dexie & Storage Hub        │  │
-│  │     1-Click Outreach)  │         │  - Tab Navigator & Orchestrator│  │
-│  │  - SettingsModal       │         └───────────────┬───────────────┘  │
-│  └────────────────────────┘                         │ chrome.tabs      │
-│                                                     │ messaging        │
-│                                                     ▼                  │
-│                                     ┌───────────────────────────────┐  │
-│                                     │  Content Scripts (Active Tab) │  │
-│                                     │  - Platform Detector (SPA)    │  │
-│                                     │  - DOM Automation Engine      │  │
-│                                     │  - Platform Drivers:          │  │
-│                                     │    • LinkedInAdapter          │  │
-│                                     │    • WellfoundAdapter         │  │
-│                                     │    • NaukriAdapter            │  │
-│                                     │    • IndeedAdapter            │  │
-│                                     │    • UniversalAtsAdapter      │  │
-│                                     │      (Greenhouse, Lever,      │  │
-│                                     │       Ashby, Workday, etc.)   │  │
-│                                     │  - Outreach Drivers:          │  │
-│                                     │    • GmailOutreach (Draft/Send│  │
-│                                     │    • LinkedInOutreach (Connect│  │
-│                                     └───────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────────────┘
+│  - 17 Programmatic Autonomous Browser Tools                            │
+│  - Dual-Tier Router: CDP (:9222) vs Extension WebSocket Bridge (:8765) │
+└──────────────────┬─────────────────────────────────┬───────────────────┘
+                   │ subprocess JSON-RPC             │ WebSocket RPC
+                   ▼                                 ▼
+┌──────────────────────────────────────┐  ┌──────────────────────────────┐
+│       PYTHON BROWSER-USE ENGINE      │  │   CHROME EXTENSION RUNTIME   │
+│    (engine/bridge.py + agent.py)     │  │                              │
+│ - browser-use 0.13.11 + cdp-use      │  │ ┌──────────────────────────┐ │
+│ - Visual DOM & Accessibility Tree    │  │ │    Side Panel (React)    │ │
+│ - Native File Uploads (CDP)          │  │ └────────────┬─────────────┘ │
+│ - Anti-Hallucination Prompt Engine   │  │              │               │
+│ - Multimodal Vision (Gemini/OpenAI)  │  │ ┌────────────▼─────────────┐ │
+└──────────────────┬───────────────────┘  │ │ Background Worker        │ │
+                   │ Chrome DevTools      │ └────────────┬─────────────┘ │
+                   │ Protocol (:9222)     │              │               │
+                   ▼                      │ ┌────────────▼─────────────┐ │
+┌──────────────────────────────────────┐  │ │ Content Scripts (DOM)    │ │
+│            GOOGLE CHROME             │◄─┼─┴──────────────────────────┘ │
+│     (port 9222, Wayland/Linux)       │  │ (Active tabs, SPA routes,   │
+│ - User session & existing cookies    │  │  Dexie DB, 1-Click outreach)│
+│ - Active tabs, job portals, Gmail    │  └──────────────────────────────┘
+└──────────────────────────────────────┘
 ```
 
 ---
@@ -62,6 +50,13 @@ This document provides complete technical context, architecture specifications, 
 
 ```text
 auto-apply-ai/
+├── engine/                            # Python Browser-Use Visual Automation Engine
+│   ├── pyproject.toml                 # uv project config (Python 3.12, browser-use, cdp-use, LLMs)
+│   ├── schemas.py                     # Pydantic schemas (CandidateProfile, WorkAuth, ApplyResult)
+│   ├── agent.py                       # AutoApplyJobAgent with visual DOM reasoning & anti-hallucination
+│   ├── bridge.py                      # CLI & JSON-RPC dispatcher for MCP server
+│   ├── test_cdp.py                    # Chrome CDP diagnostic tool
+│   └── .env.example                   # LLM API keys template
 ├── entrypoints/
 │   ├── background.ts                  # Central orchestrator: tab state, rate limiting, MCP bridging, outreach router
 │   ├── sidepanel/                     # React 19 UI mounted in chrome.sidePanel
@@ -87,7 +82,7 @@ auto-apply-ai/
 │   │       ├── gmail.ts               # Authenticated browser Gmail automation (compose, populate draft, optional send)
 │   │       └── linkedin.ts            # Recruiter LinkedIn profile connection with grounded note or direct chat message
 ├── mcp-server/
-│   └── index.ts                       # 16-tool MCP Server (Stdio) + WebSocket Bridge for external coding agents
+│   └── index.ts                       # 17-tool MCP Server (Stdio) + WebSocket Bridge for external coding agents
 ├── src/
 │   ├── lib/
 │   │   ├── mcp-bridge.ts              # WebSocket client bridge inside the Chrome extension
@@ -100,6 +95,7 @@ auto-apply-ai/
 │   │   ├── resume-parser.ts           # Hybrid regex + AI resume extraction engine
 │   │   └── types.ts                   # Universal TypeScript interfaces and data models
 ├── scripts/
+│   ├── launch-chrome-cdp.sh           # Safe Chrome launcher with port 9222 preserving session
 │   └── sanitize-encoding.js           # Post-build Chromium UTF-8 noncharacter sanitizer
 ├── wxt.config.ts                      # WXT build configuration & Manifest V3 permissions (https://*/*)
 ├── package.json
@@ -206,6 +202,26 @@ To ensure candidates never submit fabricated claims, the AI engine enforces stri
 - **Multi-Word Role Matching:** Matches target role whitelist terms across any order or variation in the job title.
 - **Posting Age Cutoff:** Enforces a maximum 30-day posting age cutoff (`maxDaysOld`), instantly skipping stale postings.
 - **Approval Flow in Semi-Auto:** Pauses at the final Review step and emits `WAITING_APPROVAL`. Once approved (via Side Panel UI button or MCP `autoapply_approve_pending`), the loop seamlessly continues to the next job card.
+
+---
+
+### F. Visual Browser-Use & CDP Automation Engine (`engine/`)
+
+1. **The Modern Web Challenges:**
+   - Modern job platforms (especially LinkedIn and ATS portals like Workday and Greenhouse) employ heavily obfuscated, atomic CSS classes (e.g. `_e0skzy`, `_e0sanb`), virtualized scroll columns, and nested modal containers.
+   - Traditional content scripts rely on CSS/XPath selectors that break whenever platforms redeploy their frontend assets.
+   - Chrome's sandboxed extension security model prohibits content scripts from programmatically attaching local files to `<input type="file">` elements without explicit manual user file dialog clicks.
+
+2. **The Visual CDP Solution:**
+   - **Protocol Access:** Connects directly to Google Chrome via Chrome DevTools Protocol (`http://127.0.0.1:9222`), preserving all authenticated sessions, cookies, and installed extensions.
+   - **Accessibility & Vision Grounding:** Leverages `browser-use 0.13.11` and `cdp-use 1.4.5` to construct interactive accessibility trees mapped to screenshot bounding boxes. Multimodal LLMs (Gemini 2.5 Flash, GPT-4o) reason visually over the interface rather than relying on brittle CSS class names.
+   - **Native Hardware Events:** Dispatches trusted browser events (`Input.dispatchMouseEvent`, `Input.dispatchKeyEvent`) that pass through React, Angular, and bot-detection heuristics indistinguishably from human hardware interactions.
+   - **Native File Uploads:** Invokes CDP's `DOM.setFileInputFiles` to attach the candidate's canonical resume PDF directly from disk (`/home/abhishek/Downloads/resume.pdf`) without triggering blocking OS file picker dialogs.
+
+3. **Dual-Tier MCP Routing & Fallback:**
+   - `mcp-server/index.ts` automatically probes `http://127.0.0.1:9222/json/version` on every application request.
+   - **Tier B (CDP Active):** Dispatches to `python engine/bridge.py apply`, providing visual reasoning and native resume upload.
+   - **Tier A (CDP Inactive):** Transparently falls back to the Chrome extension WebSocket bridge (`ws://127.0.0.1:8765`), ensuring zero-friction usability even if Chrome was launched without debugging flags.
 
 ---
 

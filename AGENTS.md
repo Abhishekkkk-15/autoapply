@@ -6,15 +6,26 @@ This document is the official guidance for autonomous AI agents (Claude Code, Go
 
 ## 1. Project Purpose & Core Architecture
 
-AutoApply AI is an autonomous, production-ready Manifest V3 Chrome Extension and Model Context Protocol (MCP) server. It enables AI coding agents to control browser sessions to parse, tailor content for, and apply to job openings across **LinkedIn**, **Wellfound**, **Naukri**, **Indeed**, and external ATS platforms (**Greenhouse**, **Lever**, **Ashby**, **Workday**), as well as orchestrating cold outreach via **Gmail** and **LinkedIn**.
+AutoApply AI is an autonomous, production-ready hybrid job application platform combining a **Manifest V3 Chrome Extension**, an **MCP Server**, and a **Python `browser-use` CDP Visual Engine**. It enables AI coding agents to control browser sessions to parse, tailor content for, and apply to job openings across **LinkedIn**, **Wellfound**, **Naukri**, **Indeed**, and external ATS platforms (**Greenhouse**, **Lever**, **Ashby**, **Workday**), as well as orchestrating cold outreach via **Gmail** and **LinkedIn**.
+
+### Dual Automation Tiers
+1. **Tier A: Chrome Extension & DOM Engine (WXT + React 19 + TypeScript)**
+   - Operates in-browser via content scripts, React side panel, and `chrome.storage.local`.
+   - Bridges to coding agents via WebSocket (`ws://127.0.0.1:8765`).
+   - Fast, low overhead, ideal for quick scrapes, status tracking, and 1-click outreach.
+2. **Tier B: Visual Browser-Use CDP Engine (Python 3.12 + `browser-use` + Chrome DevTools Protocol)**
+   - Connects directly to Google Chrome via CDP on port `9222` (`http://127.0.0.1:9222`).
+   - Uses vision + accessibility tree inspection to navigate complex atomic CSS (`.e0skzy`, `.e0sanb`), virtualized scroll columns, and multi-step modals.
+   - Handles native file uploads (`resume.pdf`) directly at the browser protocol level.
 
 ### Tech Stack
-- **Framework:** WXT (Vite + TypeScript) targeting Manifest V3.
+- **Extension Framework:** WXT (Vite + TypeScript) targeting Manifest V3.
 - **UI & Dashboard:** React 19, Tailwind CSS, Lucide icons, mounted inside `chrome.sidePanel`.
 - **Database & Storage:**
   - `dexie` (IndexedDB): applied jobs, recruiter contacts, execution logs, CSV export.
   - `chrome.storage.local`: user application profiles, target job whitelist, company blacklist, API keys.
-- **Agent Interoperability:** Model Context Protocol (MCP) via `@modelcontextprotocol/sdk` on stdio, bridged to the Chrome Extension via `ws://127.0.0.1:8765`.
+- **Python CDP Engine:** Python 3.12, `uv`, `browser-use 0.13.11`, `cdp-use 1.4.5`, `google-genai`, `openai`, `anthropic`, Pydantic v2.
+- **Agent Interoperability:** Model Context Protocol (MCP) via `@modelcontextprotocol/sdk` on stdio, bridged to both the Chrome Extension (`ws://127.0.0.1:8765`) and the Python CDP Engine (`engine/bridge.py`).
 
 ---
 
@@ -22,18 +33,24 @@ AutoApply AI is an autonomous, production-ready Manifest V3 Chrome Extension and
 
 When AutoApply AI is registered as an MCP server in your environment, you have direct programmatic control over the user's active browser job search and outreach session.
 
-### Complete List of Available MCP Tools (16 Tools)
+### Complete List of Available MCP Tools (17 Tools)
 
 #### 1. `autoapply_status`
 - **Description:** Checks extension connectivity, active tab platform, running queue state, and daily rate limit counts.
-- **Usage:** Call this first to verify that Google Chrome is open and connected to the bridge.
+- **Usage:** Call this to verify that Google Chrome extension is connected to the bridge.
 
-#### 2. `autoapply_get_current_job`
+#### 2. `autoapply_cdp_status`
+- **Description:** Checks whether Chrome DevTools Protocol (CDP) port 9222 is active and ready for visual AI browser automation via `browser-use`.
+- **Usage:** Call this to verify whether the visual CDP engine tier is available. Chrome can be launched with CDP enabled via `bash scripts/launch-chrome-cdp.sh`.
+
+#### 3. `autoapply_get_current_job`
 - **Description:** Scrapes the job currently open in the active browser tab (including title, company, location, platform, full job description, extracted recruiter contacts, and Easy Apply eligibility).
 - **Returns:** `{ title, company, location, platform, jobDescription, extractedContacts, canEasyApply }`.
 
-#### 3. `autoapply_apply_current_job`
-- **Description:** Triggers the application workflow on the active tab. You can supply your own LLM-generated pitch notes, custom cover letters, and specific question answers.
+#### 4. `autoapply_apply_current_job`
+- **Description:** Triggers the application workflow on the active tab with intelligent dual-tier routing:
+  - If CDP port 9222 is active, it automatically dispatches via the Python `browser-use` engine for robust visual navigation and native resume PDF upload.
+  - If CDP port 9222 is inactive, it seamlessly falls back to the Chrome extension content script bridge.
 - **Parameters:**
   - `mode` (`'semi-auto'` | `'full-auto'`):
     - `'semi-auto'` (Recommended): Fills all fields, injects pitches/cover letters, advances to the review step, and halts for user or agent approval.
@@ -42,16 +59,16 @@ When AutoApply AI is registered as an MCP server in your environment, you have d
   - `customCoverLetter` (`string`, optional): A tailored cover letter generated by the coding agent matching job requirements.
   - `customAnswers` (`Array<{ questionPattern: string, answer: string }>`, optional): Targeted answers generated for open-ended or specific questions on the application form.
 
-#### 4. `autoapply_approve_pending`
+#### 5. `autoapply_approve_pending`
 - **Description:** Submits an application currently paused at the `'WAITING_APPROVAL'` review step.
 
-#### 5. `autoapply_get_user_profile` & `autoapply_update_user_profile`
+#### 6. `autoapply_get_user_profile` & `autoapply_update_user_profile`
 - **Description:** Read or update the candidate's active profile, contact info, experience, notice period, target roles whitelist, or company blacklist.
 
-#### 6. `autoapply_list_applied_jobs`
+#### 7. `autoapply_list_applied_jobs`
 - **Description:** Queries applied job history from IndexedDB, including recruiter emails and generated artifacts.
 
-#### 7. `autoapply_save_job_artifacts`
+#### 8. `autoapply_save_job_artifacts`
 - **Description:** Saves AI-generated cold outreach emails, customized cover letters, pitch notes, LinkedIn connection messages, and relevance evaluation scores directly into the applied job database record.
 - **Parameters:**
   - `platform` (`'linkedin'` | `'indeed'` | `'wellfound'` | `'naukri'` | `'greenhouse'` | `'lever'` | `'ashby'` | `'workday'` | `'universal'`): Platform of the job.
@@ -63,10 +80,10 @@ When AutoApply AI is registered as an MCP server in your environment, you have d
   - `notes` (`string`, optional): Candidate fit evaluation, relevance score (e.g. 95%), or review notes.
   - `status` (`'APPLIED'` | `'SKIPPED'` | `'FAILED'` | `'PENDING_APPROVAL'`, optional).
 
-#### 8. `autoapply_queue_control`
+#### 9. `autoapply_queue_control`
 - **Description:** Controls bulk queue navigation across search results (`start`, `pause`, `resume`, `stop`).
 
-#### 9. `autoapply_search_and_apply`
+#### 10. `autoapply_search_and_apply`
 - **Description:** Autonomously navigates to a job platform, initiates a search with Easy-Apply and Remote filters, iterates through search results card-by-card, checks candidate fit & blacklist, and applies automatically across multiple pages.
 - **Parameters:**
   - `query` (`string`): Target job title or keywords (e.g. `"Full Stack Engineer"`, `"React Developer"`).
@@ -76,25 +93,25 @@ When AutoApply AI is registered as an MCP server in your environment, you have d
   - `maxJobs` (`number`, default `10`): Application ceiling for this search session.
   - `remoteOnly` (`boolean`, default `false`): Restrict search results to remote roles.
 
-#### 10. `autoapply_parse_resume`
+#### 11. `autoapply_parse_resume`
 - **Description:** Ingests raw resume text or markdown, automatically extracts candidate contact information, social links (LinkedIn, GitHub, Portfolio), location, calculated years of experience, key technical skills, and target roles whitelist, and optionally updates the candidate profile in storage.
 - **Parameters:**
   - `resumeText` (`string`): Raw text or markdown content of the candidate resume.
   - `autoSave` (`boolean`, default `true`): Whether to immediately persist the parsed fields into `chrome.storage.local`.
 
-#### 11. `autoapply_browser_navigate`
+#### 12. `autoapply_browser_navigate`
 - **Description:** Navigates the browser to any target URL in the active tab or opens a new tab.
 - **Parameters:**
   - `url` (`string`): Target URL (e.g., `"https://jobs.lever.co/company/job-id"`, `"https://mail.google.com"`).
   - `newTab` (`boolean`, default `false`): Open in a new tab.
 
-#### 12. `autoapply_universal_apply`
+#### 13. `autoapply_universal_apply`
 - **Description:** Autonomously parses and applies to jobs on ANY external ATS portal (**Greenhouse**, **Lever**, **Ashby**, **Workday**, or custom company careers page).
 - **Parameters:**
   - `mode` (`'semi-auto'` | `'full-auto'`): Semi-auto pauses before submission for confirmation; full-auto completes submission.
   - `customPitch` (`string`, optional): Custom cover letter or pitch note.
 
-#### 13. `autoapply_gmail_send`
+#### 14. `autoapply_gmail_send`
 - **Description:** Composes and populates an email directly via the user's authenticated Gmail session in the browser.
 - **Parameters:**
   - `to` (`string`): Recipient email address.
@@ -102,19 +119,19 @@ When AutoApply AI is registered as an MCP server in your environment, you have d
   - `body` (`string`): Formatted email body.
   - `action` (`'draft'` | `'send'`, default `'draft'`): Save as draft for review or dispatch immediately.
 
-#### 14. `autoapply_linkedin_outreach`
+#### 15. `autoapply_linkedin_outreach`
 - **Description:** Navigates to a recruiter/founder LinkedIn profile and dispatches a personalized connection request with a grounded note or direct chat message.
 - **Parameters:**
   - `note` (`string`): Connection note (strictly under 300 characters) or direct message text.
   - `profileUrl` (`string`, optional): Recipient LinkedIn profile URL.
   - `action` (`'connect'` | `'message'`, default `'connect'`).
 
-#### 15. `autoapply_scrape_page`
+#### 16. `autoapply_scrape_page`
 - **Description:** Scrapes the active tab or target tab, extracting page title, URL, clean body text, forms, and detected job information.
 - **Parameters:**
   - `tabId` (`number`, optional): Specific tab to scrape (defaults to active tab).
 
-#### 16. `autoapply_set_mode`
+#### 17. `autoapply_set_mode`
 - **Description:** Configures the automation pacing, delay jitter, and daily application volume.
 - **Parameters:**
   - `mode` (`'conservative'` | `'standard'` | `'aggressive'`): Pacing preset.
@@ -155,6 +172,12 @@ When navigating to a company careers page or external job posting:
 2. Call `autoapply_universal_apply` with `mode: "semi-auto"`.
 3. The universal driver maps candidate profile data to form fields, uploads resume markdown, answers questions, and halts before submission.
 
+### Example D: Visual AI Automation via Browser-Use & CDP (Port 9222)
+When dealing with complex, obfuscated, or atomic-CSS modal dialogs (such as modern LinkedIn Easy Apply multi-page modals or dynamic ATS forms):
+1. Verify CDP status with `autoapply_cdp_status`. If not connected, launch Chrome with CDP via `bash scripts/launch-chrome-cdp.sh` (retaining existing logged-in cookies and sessions).
+2. Call `autoapply_apply_current_job` with `mode: "semi-auto"`.
+3. The MCP server automatically detects CDP port 9222 and executes `python engine/bridge.py apply`, driving `browser-use` with vision to inspect the live accessibility tree, fill required form inputs, attach candidate's canonical resume PDF (`/home/abhishek/Downloads/resume.pdf`), and halt before the final submit step for confirmation.
+
 ---
 
 ## 4. Coding Conventions & Invariants
@@ -188,3 +211,10 @@ npm run build     # Builds WXT MV3 bundle and runs encoding sanitizer
 - Search URLs automatically incorporate platform date filters (`f_TPR=r2592000` on LinkedIn, `fromage=30` on Indeed, `days=30` on Naukri).
 - Content script adapters extract `postedDate` from DOM and parse approximate age via `parsePostedAgeInDays` in `src/lib/extractor.ts`.
 - Any job posted a month or older (> 30 days, "1 month ago", "2 months ago", "30+ days ago") is immediately skipped before applying.
+
+### G. Browser-Use & CDP Engine Guidelines
+- **Chrome CDP Launch:** Chrome must be launched with `--remote-debugging-port=9222`. Use `bash scripts/launch-chrome-cdp.sh` which preserves existing profile cookies, sessions, and installed extensions on Linux/Wayland.
+- **Canonical Resume Attachment:** The canonical resume path defaults to `/home/abhishek/Downloads/resume.pdf` (or `CandidateProfile.resume_path`). CDP handles native file upload dialogs directly via protocol commands (`DOM.setFileInputFiles`).
+- **Python Environment:** The engine resides in `engine/` managed by `uv`. Dependencies are specified in `engine/pyproject.toml` (`package = false` mode) and installed into `engine/.venv`.
+- **Strict Factual Guardrails:** The Python agent prompt (`engine/agent.py`) enforces the same zero-hallucination rules as the TypeScript extension: no invented metrics, no fabricated degrees, employers, or skills.
+

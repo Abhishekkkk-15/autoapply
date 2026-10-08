@@ -772,9 +772,16 @@ export default defineBackground(() => {
 
     if (targetRoles?.length) {
       const titleLower = job.title.toLowerCase();
-      const hasMatch = targetRoles.some((role) =>
-        role.trim() && titleLower.includes(role.toLowerCase().trim())
-      );
+      const hasMatch = targetRoles.some((role) => {
+        const rLower = role.toLowerCase().trim();
+        if (!rLower) return false;
+        if (titleLower.includes(rLower)) return true;
+        const words = rLower.split(/\s+/).filter(Boolean);
+        if (words.length > 1 && words.every((w) => titleLower.includes(w))) {
+          return true;
+        }
+        return false;
+      });
       if (!hasMatch) {
         return {
           allow: false,

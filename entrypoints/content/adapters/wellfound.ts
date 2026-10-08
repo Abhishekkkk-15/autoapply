@@ -202,7 +202,13 @@ export class WellfoundAdapter extends JobPlatformAdapter {
 
   canAutoApply(): boolean {
     if (this.selectedCard) {
-      return !!this.findApplyButton(this.selectedCard);
+      const text = this.selectedCard.textContent?.toLowerCase() || '';
+      return (
+        text.includes('apply on wellfound') ||
+        text.includes('learn more') ||
+        !!this.findApplyButton(this.selectedCard) ||
+        !!this.findApplyButton(document)
+      );
     }
     return !!this.findApplyButton();
   }
@@ -410,21 +416,22 @@ export class WellfoundAdapter extends JobPlatformAdapter {
     let modal = this.findApplyModal();
 
     if (!noteInput) {
-      // Look for apply button on selected card first, then document with brief wait
-      let applyBtn = this.selectedCard ? this.findApplyButton(this.selectedCard) : null;
-      if (!applyBtn) {
+      // 1. If Apply button is not already visible, open the job post first!
+      let applyBtn = this.findApplyButton(document);
+
+      if (!applyBtn && this.selectedCard) {
+        await this.openJobPost(this.selectedCard);
+      }
+
+      // 2. Poll up to 4.5 seconds for the Apply button in the opened job post
+      for (let i = 0; i < 9; i++) {
         applyBtn = this.findApplyButton(document);
+        if (applyBtn) break;
+        await randomDelay(400, 600);
       }
+
       if (!applyBtn) {
-        for (let i = 0; i < 5; i++) {
-          await randomDelay(400, 600);
-          applyBtn = this.selectedCard ? this.findApplyButton(this.selectedCard) : null;
-          if (!applyBtn) applyBtn = this.findApplyButton(document);
-          if (applyBtn) break;
-        }
-      }
-      if (!applyBtn) {
-        return { status: 'NO_EASY_APPLY', message: 'No active Apply button found on Wellfound.' };
+        return { status: 'NO_EASY_APPLY', message: 'No active Apply button found in opened job post on Wellfound.' };
       }
 
       await simulateClick(applyBtn);
@@ -738,13 +745,8 @@ export class WellfoundAdapter extends JobPlatformAdapter {
     // Store card reference for executeApplyStep
     this.selectedCard = card;
 
-    // Trigger click on the card to open its job details on the right pane
-    try {
-      const clickTarget =
-        card.querySelector<HTMLElement>('div[class*="header"], h4, h3, div[class*="title"]') || card;
-      await simulateClick(clickTarget);
-      await randomDelay(800, 1400);
-    } catch {}
+    // Open the job post to view its details and reveal the Apply button
+    await this.openJobPost(card);
 
     // DO NOT click anchor 'a[href*="/jobs/"]' as it navigates away and destroys the content script session!
     const titleEl = card.querySelector<HTMLElement>(
@@ -819,6 +821,36 @@ export class WellfoundAdapter extends JobPlatformAdapter {
       success: true,
       job,
     };
+  }
+
+  private async openJobPost(card: HTMLElement): Promise<void> {
+    // 1. Look for explicit "Learn more" button on the card (as shown in Wellfound UI)
+    const buttons = Array.from(card.querySelectorAll<HTMLElement>('button, a[role="button"], a'));
+    const learnMoreBtn = buttons.find((b) => {
+      if (b.offsetWidth === 0 && b.offsetHeight === 0 && b.getClientRects().length === 0) return false;
+      const text = b.textContent?.trim().toLowerCase() || '';
+      return text.includes('learn more') || text.includes('view job') || text.includes('view details');
+    });
+
+    if (learnMoreBtn) {
+      await simulateClick(learnMoreBtn);
+      await randomDelay(1200, 2000);
+      return;
+    }
+
+    // 2. Look for job title link or title element
+    const titleEl = card.querySelector<HTMLElement>(
+      '[data-test="JobTitle"], a[href*="/jobs/"], .styles_title__2_jV3, span[class*="title"], h3, h4'
+    );
+    if (titleEl) {
+      await simulateClick(titleEl);
+      await randomDelay(1200, 2000);
+      return;
+    }
+
+    // 3. Fallback: click the card container itself
+    await simulateClick(card);
+    await randomDelay(1200, 2000);
   }
 
   async clickNextPage(): Promise<boolean> {

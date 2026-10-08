@@ -51,18 +51,43 @@ When AutoApply AI is registered as an MCP server in your environment, you have d
 #### 7. `autoapply_queue_control`
 - **Description:** Controls bulk queue navigation across search results (`start`, `pause`, `resume`, `stop`).
 
+#### 8. `autoapply_search_and_apply`
+- **Description:** Autonomously navigates to a job platform, initiates a search with Easy-Apply and Remote filters, iterates through search results card-by-card, checks candidate fit & blacklist, and applies automatically across multiple pages.
+- **Parameters:**
+  - `query` (`string`): Target job title or keywords (e.g. `"Full Stack Engineer"`, `"React Developer"`).
+  - `location` (`string`, optional): Location filter (e.g. `"Remote"`, `"United States"`).
+  - `platform` (`'linkedin'` | `'indeed'` | `'wellfound'` | `'naukri'`): Platform to search (default: `'linkedin'`).
+  - `mode` (`'semi-auto'` | `'full-auto'`): Semi-auto halts before each final submit; full-auto completes directly.
+  - `maxJobs` (`number`, default `10`): Application ceiling for this search session.
+  - `remoteOnly` (`boolean`, default `false`): Restrict search results to remote roles.
+
 ---
 
-## 3. Autonomous Agent Workflow Example
+## 3. Autonomous Agent Workflow Examples
 
+### Example A: Single Tab Match & Apply
 When a user asks: *"Check the job on my screen and apply if it matches my profile"*:
-
 1. Call `autoapply_status` to ensure extension is connected.
 2. Call `autoapply_get_current_job` to extract job details and requirements.
 3. Call `autoapply_get_user_profile` to review candidate skills and target role filters.
 4. Evaluate job match (compare required skills against resume markdown).
 5. If match is strong: Call `autoapply_apply_current_job` with `mode: "semi-auto"`.
 6. Inspect the returned step status. If `PENDING_APPROVAL`, summarize the filled application and ask the user (or call `autoapply_approve_pending`) to complete submission.
+
+### Example B: Autonomous Search & Multi-Page Apply
+When a user asks: *"Find remote React developer jobs on LinkedIn and apply to 5 matching roles"*:
+1. Call `autoapply_search_and_apply` with:
+   ```json
+   {
+     "query": "React Developer",
+     "location": "Remote",
+     "platform": "linkedin",
+     "remoteOnly": true,
+     "maxJobs": 5,
+     "mode": "semi-auto"
+   }
+   ```
+2. The orchestrator automatically loads LinkedIn's search results with `f_AL=true` and `f_WT=2`, iterates through cards, deduplicates against previous applications in Dexie DB, fills forms, pauses for approval (if semi-auto), and paginates through search pages until 5 applications are completed.
 
 ---
 

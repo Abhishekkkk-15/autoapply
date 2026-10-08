@@ -148,6 +148,15 @@ export type AutomationEngineStatus =
   | 'WAITING_APPROVAL'
   | 'ERROR';
 
+export interface SearchAndApplyParams {
+  query: string;
+  location?: string;
+  platform?: Platform;
+  mode?: 'semi-auto' | 'full-auto';
+  maxJobs?: number;
+  remoteOnly?: boolean;
+}
+
 export interface AutomationState {
   status: AutomationEngineStatus;
   mode: 'semi-auto' | 'full-auto';
@@ -157,6 +166,14 @@ export interface AutomationState {
   dailyCount: number;
   dailyCap: number;
   lastError?: string;
+  searchParams?: SearchAndApplyParams;
+  searchProgress?: {
+    currentCardIndex: number;
+    totalCardsFound: number;
+    currentPage: number;
+    totalApplied: number;
+    maxJobs: number;
+  };
 }
 
 // Background <-> Content / SidePanel Message Protocol
@@ -165,6 +182,7 @@ export type ExtensionMessage =
   | { type: 'PAUSE_QUEUE' }
   | { type: 'RESUME_QUEUE' }
   | { type: 'STOP_QUEUE' }
+  | { type: 'START_SEARCH_AND_APPLY'; payload: SearchAndApplyParams }
   | { type: 'EXECUTE_APPLY_ON_CURRENT_TAB'; payload?: { mode?: 'semi-auto' | 'full-auto' } }
   | { type: 'SUBMIT_PENDING_APPROVAL' }
   | { type: 'CANCEL_PENDING_APPROVAL' }
@@ -175,6 +193,9 @@ export type ExtensionMessage =
   | { type: 'CONTENT_PARSED_JOB'; payload: ScrapedJob }
   | { type: 'CONTENT_STEP_RESULT'; payload: ApplyStepResult }
   | { type: 'CHECK_TAB_PLATFORM' }
+  | { type: 'GET_SEARCH_RESULTS_INFO' }
+  | { type: 'SELECT_SEARCH_RESULT_CARD'; payload: { index: number } }
+  | { type: 'PAGINATE_NEXT_PAGE' }
   | { type: 'GET_MCP_STATUS' }
   | { type: 'RECONNECT_MCP' }
   | { type: 'MCP_STATUS_UPDATE'; payload: McpBridgeStatus };

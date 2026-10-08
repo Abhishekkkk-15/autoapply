@@ -1,4 +1,4 @@
-import { JobPlatformAdapter } from './base';
+import { JobPlatformAdapter, type SearchCardInfo } from './base';
 import type {
   ScrapedJob,
   UserProfile,
@@ -474,6 +474,129 @@ export class LinkedInAdapter extends JobPlatformAdapter {
         break;
       }
     }
+  }
+
+  getSearchResultCards(): SearchCardInfo[] {
+    const rawCards = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        'li.jobs-search-results__list-item, .scaffold-layout__list-container li, div.job-card-container, div[data-job-id]'
+      )
+    );
+
+    const cards: SearchCardInfo[] = [];
+    const seenIds = new Set<string>();
+
+    for (let i = 0; i < rawCards.length; i++) {
+      const card = rawCards[i];
+      const titleEl = card.querySelector(
+        '.job-card-list__title, .artdeco-entity-lockup__title, a[href*="/jobs/view/"], strong'
+      );
+      const title = titleEl?.textContent?.trim() || '';
+      if (!title) continue;
+
+      const compEl = card.querySelector(
+        '.job-card-container__primary-description, .artdeco-entity-lockup__subtitle, .job-card-container__company-name'
+      );
+      const company = compEl?.textContent?.trim() || '';
+
+      let id =
+        card.getAttribute('data-occludable-job-id') ||
+        card.getAttribute('data-job-id') ||
+        card.querySelector('[data-job-id]')?.getAttribute('data-job-id') ||
+        '';
+
+      if (!id) {
+        const link = card.querySelector<HTMLAnchorElement>('a[href*="/jobs/view/"]');
+        if (link?.href) {
+          const match = link.href.match(/\/jobs\/view\/(\d+)/);
+          if (match) id = match[1];
+        }
+      }
+      if (!id) {
+        id = `card_${i}_${title}_${company}`;
+      }
+
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+
+      const text = card.textContent?.toLowerCase() || '';
+      const isEasyApply = text.includes('easy apply');
+
+      cards.push({
+        index: i,
+        id,
+        title,
+        company,
+        isEasyApply,
+      });
+    }
+
+    return cards;
+  }
+
+  async selectSearchResultCard(index: number): Promise<{ success: boolean; job?: ScrapedJob }> {
+    const rawCards = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        'li.jobs-search-results__list-item, .scaffold-layout__list-container li, div.job-card-container, div[data-job-id]'
+      )
+    );
+
+    const card = rawCards[index];
+    if (!card) {
+      return { success: false };
+    }
+
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    await randomDelay(300, 600);
+
+    const clickable =
+      card.querySelector<HTMLElement>(
+        'a.job-card-list__title, a.job-card-container__link, a[href*="/jobs/view/"], div.job-card-container'
+      ) || card;
+
+    await simulateClick(clickable);
+
+    // Wait for the detail view on the right pane to update
+    await randomDelay(1800, 2600);
+
+    await waitForSelector(
+      '.job-details-jobs-unified-top-card__job-title, .jobs-unified-top-card__job-title, #job-details',
+      4000
+    );
+
+    const job = await this.parseCurrentJob();
+    return {
+      success: !!job,
+      job: job || undefined,
+    };
+  }
+
+  async clickNextPage(): Promise<boolean> {
+    const nextBtn = document.querySelector<HTMLElement>(
+      'button[aria-label="View next page"], button[aria-label="Next"], .jobs-search-pagination__button--next, .artdeco-pagination__button--next'
+    );
+    if (nextBtn && !nextBtn.hasAttribute('disabled') && nextBtn.getAttribute('aria-disabled') !== 'true') {
+      nextBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      await randomDelay(400, 800);
+      await simulateClick(nextBtn);
+      await randomDelay(2500, 3500);
+      return true;
+    }
+
+    const activePage = document.querySelector(
+      '.artdeco-pagination__indicator--number.active, .jobs-search-pagination__indicator-button--active, li.active[data-test-pagination-page-btn]'
+    );
+    const nextLi = activePage?.parentElement?.nextElementSibling || activePage?.nextElementSibling;
+    const nextNumBtn = nextLi?.querySelector<HTMLElement>('button');
+    if (nextNumBtn) {
+      nextNumBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      await randomDelay(400, 800);
+      await simulateClick(nextNumBtn);
+      await randomDelay(2500, 3500);
+      return true;
+    }
+
+    return false;
   }
 }
 

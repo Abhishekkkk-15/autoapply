@@ -83,6 +83,7 @@ auto-apply-ai/
 │   │   ├── db.ts                      # Dexie DB schema (appliedJobs, contacts, logs) & CSV export
 │   │   ├── ai.ts                      # Universal LLM client (OpenAI, Claude, Groq, Ollama) & deterministic fallbacks
 │   │   ├── dom-utils.ts               # Prototype setters (React/Angular), pointer cascades, wait helpers
+│   │   ├── search-urls.ts             # Direct search URL generator with Easy Apply & Remote filters
 │   │   ├── extractor.ts               # RFC 5322 regex email extractors and recruiter profile scrapers
 │   │   └── types.ts                   # Universal TypeScript interfaces and data models
 ├── scripts/
@@ -140,6 +141,16 @@ export abstract class JobPlatformAdapter {
 4. **Indeed Adapter ([indeed.ts](file:///D:/js/job-applier/entrypoints/content/adapters/indeed.ts)):**
    - Traverses "Easily apply" popups and multi-page wizard steps.
    - Supported across nested iframes via `allFrames: true`.
+
+### E. Autonomous Search & Multi-Page Apply Engine (`entrypoints/background.ts` & adapters)
+- **Direct Search Query Construction:** `buildJobSearchUrl` builds platform-specific search URLs with pre-applied Easy Apply filters (`f_AL=true` on LinkedIn, `iafilter=1` on Indeed) and optional Remote filter (`f_WT=2`).
+- **Card-by-Card Traversal:** Asks content script for visible job cards on the page, smoothly scrolls each into view, simulates real user click, and waits for detail pane hydration.
+- **Three-Tier Pre-Apply Filtering:**
+  1. *Deduplication:* Checks IndexedDB (`db.appliedJobs`) to avoid re-applying.
+  2. *Preference & Blacklist:* Verifies company blacklist and target roles whitelist.
+  3. *Easy Apply Verification:* Confirms 1-click / Easy Apply modal presence.
+- **Approval Flow in Semi-Auto:** Pauses at the final Review step and emits `WAITING_APPROVAL`. Once approved (via Side Panel UI button or MCP `autoapply_approve_pending`), the loop seamlessly continues to the next job card.
+- **Multi-Page Pagination:** Automatically clicks "Next Page" or increments URL pagination offset (`&start=25` / `&start=10`) when all cards on the current page are processed.
 
 ---
 

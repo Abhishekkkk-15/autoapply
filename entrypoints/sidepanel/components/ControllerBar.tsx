@@ -17,14 +17,25 @@ import {
   Check,
   X,
   ExternalLink,
+  Search,
+  Compass,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import type {
   AutomationState,
   ExecutionLog,
   ExtensionMessage,
   AppSettings,
+  Platform,
 } from '@/src/lib/types';
-import { getAppSettings, saveAppSettings, getRecentLogs, clearLogs } from '@/src/lib/db';
+import {
+  getAppSettings,
+  saveAppSettings,
+  getRecentLogs,
+  clearLogs,
+  getUserProfile,
+} from '@/src/lib/db';
 
 interface ControllerBarProps {
   state: AutomationState;
@@ -39,6 +50,14 @@ export const ControllerBar: React.FC<ControllerBarProps> = ({
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [isSubmittingApproval, setIsSubmittingApproval] = useState(false);
 
+  // Autonomous Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchLocation, setSearchLocation] = useState('Remote');
+  const [searchPlatform, setSearchPlatform] = useState<Platform>('linkedin');
+  const [searchMaxJobs, setSearchMaxJobs] = useState(10);
+  const [searchRemoteOnly, setSearchRemoteOnly] = useState(true);
+  const [isSearchOpen, setIsSearchOpen] = useState(true);
+
   useEffect(() => {
     loadSettings();
     loadLogs();
@@ -50,6 +69,15 @@ export const ControllerBar: React.FC<ControllerBarProps> = ({
       }
     };
     chrome.runtime.onMessage.addListener(logListener);
+
+    getUserProfile().then((p) => {
+      if (p?.jobPreferences?.targetRoles?.length) {
+        setSearchQuery((prev) => prev || p.jobPreferences.targetRoles[0]);
+      }
+      if (p?.currentLocation) {
+        setSearchLocation((prev) => (prev === 'Remote' ? p.currentLocation : prev));
+      }
+    });
 
     return () => {
       chrome.runtime.onMessage.removeListener(logListener);
@@ -64,6 +92,22 @@ export const ControllerBar: React.FC<ControllerBarProps> = ({
   const loadLogs = async () => {
     const l = await getRecentLogs(50);
     setLogs(l);
+  };
+
+  const handleStartSearchAndApply = () => {
+    if (!searchQuery.trim()) return;
+    chrome.runtime.sendMessage({
+      type: 'START_SEARCH_AND_APPLY',
+      payload: {
+        query: searchQuery.trim(),
+        location: searchLocation.trim(),
+        platform: searchPlatform,
+        mode: settings?.mode || 'semi-auto',
+        maxJobs: searchMaxJobs,
+        remoteOnly: searchRemoteOnly,
+      },
+    } as ExtensionMessage);
+    onRefreshState();
   };
 
   const handleToggleMode = async (newMode: 'semi-auto' | 'full-auto') => {
@@ -322,7 +366,144 @@ export const ControllerBar: React.FC<ControllerBarProps> = ({
         )}
       </div>
 
-      {/* 4. Currently Detected Job Card */}
+      {/* 4. Autonomous Job Search & Apply Engine */}
+      <div className="p-4 bg-gradient-to-br from-indigo-50/70 to-blue-50/50 rounded-xl border border-indigo-200/80 shadow-sm flex flex-col gap-3">
+        <div
+          className="flex items-center justify-between cursor-pointer select-none"
+          onClick={() => setIsSearchOpen(!isSearchOpen)}
+        >
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-indigo-600 text-white rounded-lg shadow-sm">
+              <Compass className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-xs font-bold text-slate-900 tracking-tight">
+                Autonomous Search & Auto-Apply
+              </h3>
+              <p className="text-[10px] text-slate-500 font-medium">
+                Auto-navigates, filters & applies across search pages
+              </p>
+            </div>
+          </div>
+          <button className="text-slate-400 hover:text-slate-600 transition">
+            {isSearchOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+        </div>
+
+        {/* Live Search Progress Indicator */}
+        {state.searchProgress && state.status === 'RUNNING' && (
+          <div className="p-2.5 bg-white rounded-lg border border-indigo-200 flex flex-col gap-1.5 shadow-xs">
+            <div className="flex justify-between items-center text-[11px] font-semibold text-indigo-900">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-indigo-600 animate-ping" />
+                Page {state.searchProgress.currentPage} • Card {state.searchProgress.currentCardIndex}/{state.searchProgress.totalCardsFound}
+              </span>
+              <span className="text-indigo-600 font-bold">
+                {state.searchProgress.totalApplied} / {state.searchProgress.maxJobs} applied
+              </span>
+            </div>
+            <div className="w-full bg-indigo-100 h-1.5 rounded-full overflow-hidden">
+              <div
+                className="bg-indigo-600 h-full transition-all duration-300"
+                style={{
+                  width: `${Math.min(
+                    100,
+                    Math.round((state.searchProgress.totalApplied / Math.max(1, state.searchProgress.maxJobs)) * 100)
+                  )}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {isSearchOpen && (
+          <div className="flex flex-col gap-2.5 pt-1">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">
+                  Target Role / Keywords
+                </label>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="e.g. React Developer"
+                  className="w-full text-xs py-1.5 px-2.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">
+                  Location
+                </label>
+                <input
+                  type="text"
+                  value={searchLocation}
+                  onChange={(e) => setSearchLocation(e.target.value)}
+                  placeholder="Remote, US, London..."
+                  className="w-full text-xs py-1.5 px-2.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 items-center">
+              <div className="flex flex-col gap-1 col-span-1">
+                <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">
+                  Platform
+                </label>
+                <select
+                  value={searchPlatform}
+                  onChange={(e) => setSearchPlatform(e.target.value as Platform)}
+                  className="w-full text-xs py-1.5 px-2 bg-white border border-slate-200 rounded-lg focus:outline-none font-medium text-slate-800"
+                >
+                  <option value="linkedin">LinkedIn</option>
+                  <option value="indeed">Indeed</option>
+                  <option value="wellfound">Wellfound</option>
+                  <option value="naukri">Naukri</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1 col-span-1">
+                <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">
+                  Max Jobs
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={searchMaxJobs}
+                  onChange={(e) => setSearchMaxJobs(Number(e.target.value))}
+                  className="w-full text-xs py-1.5 px-2.5 bg-white border border-slate-200 rounded-lg focus:outline-none font-medium"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5 pt-4 col-span-1">
+                <input
+                  type="checkbox"
+                  id="remoteOnlyCheck"
+                  checked={searchRemoteOnly}
+                  onChange={(e) => setSearchRemoteOnly(e.target.checked)}
+                  className="w-3.5 h-3.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                />
+                <label htmlFor="remoteOnlyCheck" className="text-xs font-semibold text-slate-700 cursor-pointer select-none">
+                  Remote Only
+                </label>
+              </div>
+            </div>
+
+            <button
+              onClick={handleStartSearchAndApply}
+              disabled={state.status === 'RUNNING' || !searchQuery.trim()}
+              className="mt-1 flex items-center justify-center gap-2 py-2 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white text-xs font-bold rounded-lg shadow-sm transition disabled:opacity-50"
+            >
+              <Search className="w-3.5 h-3.5" />
+              Search & Auto-Apply ({settings?.mode === 'semi-auto' ? 'Semi-Auto' : 'Full-Auto'})
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 5. Currently Detected Job Card */}
       {state.currentJob && (
         <div className="p-3.5 bg-white rounded-xl border border-slate-200/80 shadow-sm flex flex-col gap-2">
           <div className="flex items-center justify-between">

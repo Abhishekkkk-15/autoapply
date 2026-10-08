@@ -404,6 +404,73 @@ server.tool(
   }
 );
 
+// Tool: autoapply_search_and_apply
+server.tool(
+  'autoapply_search_and_apply',
+  'Automatically navigates to a job board (LinkedIn, Indeed, etc.), executes a search with Easy-Apply / Remote filters, inspects job cards card-by-card, checks candidate fit & blacklist, and applies autonomously in semi-auto or full-auto mode.',
+  {
+    query: z
+      .string()
+      .describe('Job title or search keywords (e.g. "Full Stack Developer", "React Engineer", "Python Backend")'),
+    location: z
+      .string()
+      .optional()
+      .describe('Location filter (e.g. "Remote", "San Francisco, CA", "United States")'),
+    platform: z
+      .enum(['linkedin', 'indeed', 'wellfound', 'naukri'])
+      .optional()
+      .default('linkedin')
+      .describe('Target job search platform (default: linkedin)'),
+    mode: z
+      .enum(['semi-auto', 'full-auto'])
+      .optional()
+      .describe("Execution mode: 'semi-auto' (pauses before submit for review) or 'full-auto' (direct submit)"),
+    maxJobs: z
+      .number()
+      .optional()
+      .default(10)
+      .describe('Maximum number of jobs to apply to in this session (default 10)'),
+    remoteOnly: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe('Whether to apply remote-only filter (default false)'),
+  },
+  async ({ query, location, platform, mode, maxJobs, remoteOnly }) => {
+    try {
+      const result = await callExtension('SEARCH_AND_APPLY', {
+        query,
+        location,
+        platform,
+        mode,
+        maxJobs,
+        remoteOnly,
+      });
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(
+              {
+                success: true,
+                message: `Autonomous search & apply started for "${query}" on ${platform}.`,
+                details: result,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    } catch (err: any) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Failed to initiate search and apply: ${err.message}` }],
+      };
+    }
+  }
+);
+
 // Connect stdio transport for the coding agent
 async function main() {
   const transport = new StdioServerTransport();

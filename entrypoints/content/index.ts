@@ -126,6 +126,42 @@ export default defineContentScript({
         return true;
       }
 
+      if (message.type === 'GET_SEARCH_RESULTS_INFO') {
+        if (!adapter) {
+          sendResponse({ count: 0, cards: [] });
+          return false;
+        }
+        const cards = adapter.getSearchResultCards();
+        sendResponse({ count: cards.length, cards });
+        return false;
+      }
+
+      if (message.type === 'SELECT_SEARCH_RESULT_CARD') {
+        if (!adapter) {
+          sendResponse({ success: false });
+          return false;
+        }
+        adapter.selectSearchResultCard(message.payload.index).then((res) => {
+          sendResponse(res);
+        }).catch((err) => {
+          sendResponse({ success: false, error: String(err) });
+        });
+        return true;
+      }
+
+      if (message.type === 'PAGINATE_NEXT_PAGE') {
+        if (!adapter) {
+          sendResponse({ success: false });
+          return false;
+        }
+        adapter.clickNextPage().then((success) => {
+          sendResponse({ success });
+        }).catch(() => {
+          sendResponse({ success: false });
+        });
+        return true;
+      }
+
       return false;
     });
   },

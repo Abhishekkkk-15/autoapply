@@ -5,6 +5,14 @@ import type {
   Platform,
 } from '@/src/lib/types';
 
+export interface SearchCardInfo {
+  index: number;
+  id?: string;
+  title?: string;
+  company?: string;
+  isEasyApply?: boolean;
+}
+
 export abstract class JobPlatformAdapter {
   abstract readonly platform: Platform;
 
@@ -31,6 +39,27 @@ export abstract class JobPlatformAdapter {
     profile: UserProfile,
     isSemiAuto: boolean
   ): Promise<ApplyStepResult>;
+
+  /**
+   * Returns list of visible job cards on search page
+   */
+  getSearchResultCards(): SearchCardInfo[] {
+    return [];
+  }
+
+  /**
+   * Clicks/selects a job card by its index in the results list
+   */
+  async selectSearchResultCard(_index: number): Promise<{ success: boolean; job?: ScrapedJob }> {
+    return { success: false };
+  }
+
+  /**
+   * Navigates to next page of search results
+   */
+  async clickNextPage(): Promise<boolean> {
+    return false;
+  }
 
   /**
    * Helper to check if current job matches user blacklist/whitelist preferences

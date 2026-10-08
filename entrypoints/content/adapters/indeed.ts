@@ -1,4 +1,4 @@
-import { JobPlatformAdapter } from './base';
+import { JobPlatformAdapter, type SearchCardInfo } from './base';
 import type {
   ScrapedJob,
   UserProfile,
@@ -280,6 +280,84 @@ export class IndeedAdapter extends JobPlatformAdapter {
     }
     const parent = el.closest('label, div');
     return parent?.querySelector('label, span, legend')?.textContent?.trim() || 'Input';
+  }
+
+  getSearchResultCards(): SearchCardInfo[] {
+    const rawCards = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        'div.job_seen_beacon, ul.jobsearch-ResultsList > li, div.cardOutline'
+      )
+    );
+
+    const cards: SearchCardInfo[] = [];
+    const seenIds = new Set<string>();
+
+    for (let i = 0; i < rawCards.length; i++) {
+      const card = rawCards[i];
+      const titleEl = card.querySelector('h2.jobTitle, a.jcs-JobTitle');
+      const title = titleEl?.textContent?.trim() || '';
+      if (!title) continue;
+
+      const compEl = card.querySelector('[data-testid="company-name"], span.companyName');
+      const company = compEl?.textContent?.trim() || '';
+
+      const link = card.querySelector<HTMLAnchorElement>('a.jcs-JobTitle, a[data-jk]');
+      const id = link?.getAttribute('data-jk') || card.getAttribute('data-jk') || `indeed_${i}_${title}`;
+
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+
+      const text = card.textContent?.toLowerCase() || '';
+      const isEasyApply = text.includes('easily apply') || text.includes('apply now');
+
+      cards.push({
+        index: i,
+        id,
+        title,
+        company,
+        isEasyApply,
+      });
+    }
+
+    return cards;
+  }
+
+  async selectSearchResultCard(index: number): Promise<{ success: boolean; job?: ScrapedJob }> {
+    const rawCards = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        'div.job_seen_beacon, ul.jobsearch-ResultsList > li, div.cardOutline'
+      )
+    );
+
+    const card = rawCards[index];
+    if (!card) return { success: false };
+
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    await randomDelay(300, 600);
+
+    const link = card.querySelector<HTMLElement>('a.jcs-JobTitle, h2.jobTitle a, a[data-jk]') || card;
+    await simulateClick(link);
+
+    await randomDelay(1800, 2600);
+    const job = await this.parseCurrentJob();
+    return {
+      success: !!job,
+      job: job || undefined,
+    };
+  }
+
+  async clickNextPage(): Promise<boolean> {
+    const nextBtn = document.querySelector<HTMLElement>(
+      'a[data-testid="pagination-page-next"], nav[aria-label="pagination"] a[aria-label="Next Page"]'
+    );
+    if (nextBtn) {
+      nextBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      await randomDelay(400, 800);
+      await simulateClick(nextBtn);
+      await randomDelay(2500, 3500);
+      return true;
+    }
+    return false;
   }
 }
 

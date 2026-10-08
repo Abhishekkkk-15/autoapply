@@ -19,6 +19,7 @@ import {
   updateJobArtifacts,
   addLog,
   getAppSettings,
+  saveAppSettings,
   getUserProfile,
   saveUserProfile,
   incrementDailyApplications,
@@ -266,6 +267,117 @@ export default defineBackground(() => {
     }
 
     return { details, profile };
+  });
+
+  mcpBridge.registerHandler('BROWSER_NAVIGATE', async (payload: { url: string; newTab?: boolean }) => {
+    let tabId: number;
+    if (payload.newTab) {
+      const tab = await chrome.tabs.create({ url: payload.url, active: true });
+      tabId = tab.id!;
+    } else {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (activeTab?.id) {
+        await chrome.tabs.update(activeTab.id, { url: payload.url });
+        tabId = activeTab.id;
+      } else {
+        const tab = await chrome.tabs.create({ url: payload.url, active: true });
+        tabId = tab.id!;
+      }
+    }
+    await waitForTabComplete(tabId, 25000);
+    await delay(1500);
+    return { success: true, tabId, url: payload.url };
+  });
+
+  mcpBridge.registerHandler('GMAIL_SEND', async (payload: { to: string; subject: string; body: string; action?: 'draft' | 'send' }) => {
+    const gmailTabs = await chrome.tabs.query({ url: '*://mail.google.com/*' });
+    let tabId: number;
+    if (gmailTabs.length > 0 && gmailTabs[0].id) {
+      tabId = gmailTabs[0].id;
+      await chrome.tabs.update(tabId, { active: true });
+    } else {
+      const tab = await chrome.tabs.create({ url: 'https://mail.google.com/mail/u/0/#inbox', active: true });
+      tabId = tab.id!;
+      await waitForTabComplete(tabId, 30000);
+      await delay(3000);
+    }
+    await delay(1000);
+    const res = await chrome.tabs.sendMessage(tabId, {
+      type: 'GMAIL_COMPOSE_AND_SEND',
+      payload,
+    } as ExtensionMessage);
+    return res;
+  });
+
+  mcpBridge.registerHandler('LINKEDIN_OUTREACH', async (payload: { profileUrl?: string; note: string; action?: 'connect' | 'message' }) => {
+    let tabId: number;
+    if (payload.profileUrl) {
+      const tab = await chrome.tabs.create({ url: payload.profileUrl, active: true });
+      tabId = tab.id!;
+      await waitForTabComplete(tabId, 25000);
+      await delay(2500);
+    } else {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!activeTab?.id) throw new Error('No active LinkedIn tab found.');
+      tabId = activeTab.id;
+    }
+    const res = await chrome.tabs.sendMessage(tabId, {
+      type: 'LINKEDIN_SEND_OUTREACH',
+      payload,
+    } as ExtensionMessage);
+    return res;
+  });
+
+  mcpBridge.registerHandler('SCRAPE_PAGE', async (payload?: { tabId?: number }) => {
+    let targetTabId = payload?.tabId;
+    if (!targetTabId) {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      targetTabId = activeTab?.id;
+    }
+    if (!targetTabId) throw new Error('No active tab to scrape.');
+    const res = await chrome.tabs.sendMessage(targetTabId, {
+      type: 'SCRAPE_CURRENT_PAGE',
+    } as ExtensionMessage);
+    return res;
+  });
+
+  mcpBridge.registerHandler('UNIVERSAL_APPLY', async (payload: { mode?: 'semi-auto' | 'full-auto'; customPitch?: string }) => {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!activeTab?.id) throw new Error('No active tab found.');
+    const res = await chrome.tabs.sendMessage(activeTab.id, {
+      type: 'EXECUTE_APPLY_ON_CURRENT_TAB',
+      payload: { mode: payload.mode || 'full-auto', customPitch: payload.customPitch },
+    } as ExtensionMessage);
+    return res;
+  });
+
+  mcpBridge.registerHandler('SET_AUTOMATION_MODE', async (payload: { mode: 'conservative' | 'standard' | 'aggressive'; dailyCap?: number }) => {
+    const settings = await getAppSettings();
+    if (payload.mode === 'aggressive') {
+      settings.minDelaySeconds = 1;
+      settings.maxDelaySeconds = 2;
+      settings.dailyApplicationCap = payload.dailyCap || 150;
+      settings.autoSubmit = true;
+      state.mode = 'full-auto';
+    } else if (payload.mode === 'conservative') {
+      settings.minDelaySeconds = 5;
+      settings.maxDelaySeconds = 12;
+      settings.dailyApplicationCap = payload.dailyCap || 15;
+    } else {
+      settings.minDelaySeconds = 3;
+      settings.maxDelaySeconds = 6;
+      settings.dailyApplicationCap = payload.dailyCap || 30;
+    }
+    state.dailyCap = settings.dailyApplicationCap;
+    await saveAppSettings(settings);
+    await updateState({ dailyCap: settings.dailyApplicationCap });
+    return {
+      success: true,
+      mode: payload.mode,
+      dailyCap: settings.dailyApplicationCap,
+      minDelay: settings.minDelaySeconds,
+      maxDelay: settings.maxDelaySeconds,
+    };
   });
 
   mcpBridge.setOnStateChange((mcpStatus) => {

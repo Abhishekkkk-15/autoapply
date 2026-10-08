@@ -3,18 +3,15 @@ import { LinkedInAdapter } from './adapters/linkedin';
 import { WellfoundAdapter } from './adapters/wellfound';
 import { NaukriAdapter } from './adapters/naukri';
 import { IndeedAdapter } from './adapters/indeed';
+import { UniversalAtsAdapter } from './adapters/universal';
 import { JobPlatformAdapter } from './adapters/base';
+import { executeGmailOutreach } from './outreach/gmail';
+import { executeLinkedInOutreach } from './outreach/linkedin';
 import type { ExtensionMessage, UserProfile } from '@/src/lib/types';
 import { getUserProfile, getAppSettings } from '@/src/lib/storage';
 
 export default defineContentScript({
-  matches: [
-    '*://*.linkedin.com/*',
-    '*://*.wellfound.com/*',
-    '*://*.angel.co/*',
-    '*://*.naukri.com/*',
-    '*://*.indeed.com/*',
-  ],
+  matches: ['*://*/*'],
   allFrames: true,
   runAt: 'document_idle',
   main() {
@@ -25,6 +22,7 @@ export default defineContentScript({
       new WellfoundAdapter(),
       new NaukriAdapter(),
       new IndeedAdapter(),
+      new UniversalAtsAdapter(),
     ];
 
     function getActiveAdapter(): JobPlatformAdapter | null {
@@ -162,6 +160,43 @@ export default defineContentScript({
         }).catch(() => {
           sendResponse({ success: false });
         });
+        return true;
+      }
+
+      if (message.type === 'GMAIL_COMPOSE_AND_SEND') {
+        executeGmailOutreach(message.payload).then((res) => {
+          sendResponse(res);
+        }).catch((err) => {
+          sendResponse({ success: false, message: err.message || String(err) });
+        });
+        return true;
+      }
+
+      if (message.type === 'LINKEDIN_SEND_OUTREACH') {
+        executeLinkedInOutreach(message.payload).then((res) => {
+          sendResponse(res);
+        }).catch((err) => {
+          sendResponse({ success: false, message: err.message || String(err) });
+        });
+        return true;
+      }
+
+      if (message.type === 'SCRAPE_CURRENT_PAGE') {
+        (async () => {
+          try {
+            const currentJob = adapter ? await adapter.parseCurrentJob() : null;
+            sendResponse({
+              success: true,
+              title: document.title,
+              url: window.location.href,
+              detectedJob: currentJob,
+              textContent: document.body.innerText.slice(0, 15000),
+              hasForms: document.querySelectorAll('form').length > 0,
+            });
+          } catch (err: any) {
+            sendResponse({ success: false, error: err.message || String(err) });
+          }
+        })();
         return true;
       }
 

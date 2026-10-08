@@ -1,4 +1,13 @@
-export type Platform = 'linkedin' | 'wellfound' | 'naukri' | 'indeed';
+export type Platform =
+  | 'linkedin'
+  | 'wellfound'
+  | 'naukri'
+  | 'indeed'
+  | 'greenhouse'
+  | 'lever'
+  | 'ashby'
+  | 'workday'
+  | 'universal';
 
 export interface WorkAuthorization {
   usCitizen: boolean;
@@ -217,4 +226,24 @@ export type ExtensionMessage =
   | { type: 'PAGINATE_NEXT_PAGE' }
   | { type: 'GET_MCP_STATUS' }
   | { type: 'RECONNECT_MCP' }
-  | { type: 'MCP_STATUS_UPDATE'; payload: McpBridgeStatus };
+  | { type: 'MCP_STATUS_UPDATE'; payload: McpBridgeStatus }
+  | {
+      type: 'GMAIL_COMPOSE_AND_SEND';
+      payload: { to: string; subject: string; body: string; action?: 'draft' | 'send' };
+    }
+  | {
+      type: 'LINKEDIN_SEND_OUTREACH';
+      payload: { profileUrl?: string; note: string; action?: 'connect' | 'message' };
+    }
+  | {
+      type: 'SCRAPE_CURRENT_PAGE';
+      payload?: { extractJobDetails?: boolean };
+    }
+  | {
+      type: 'NAVIGATE_TAB';
+      payload: { url: string; newTab?: boolean; waitForSelector?: string };
+    }
+  | {
+      type: 'SET_AUTOMATION_MODE';
+      payload: { mode: 'conservative' | 'standard' | 'aggressive'; dailyCap?: number };
+    };

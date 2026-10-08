@@ -583,6 +583,176 @@ server.tool(
   }
 );
 
+// Tool: autoapply_browser_navigate
+server.tool(
+  'autoapply_browser_navigate',
+  'Navigates the browser to any target URL in the active tab or opens a new tab.',
+  {
+    url: z.string().describe('The URL to navigate to (e.g. "https://mail.google.com", "https://linkedin.com", "https://jobs.lever.co/...")'),
+    newTab: z.boolean().optional().default(false).describe('Whether to open the URL in a new tab (default false)'),
+  },
+  async ({ url, newTab }) => {
+    try {
+      const result = await callExtension('BROWSER_NAVIGATE', { url, newTab });
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    } catch (err: any) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Navigation failed: ${err.message}` }],
+      };
+    }
+  }
+);
+
+// Tool: autoapply_gmail_send
+server.tool(
+  'autoapply_gmail_send',
+  "Composes and sends an email directly via the user's authenticated Gmail session in the browser.",
+  {
+    to: z.string().describe('Recipient email address (e.g. "recruiter@company.com")'),
+    subject: z.string().describe('Email subject line'),
+    body: z.string().describe('Email body content (text/markdown formatted)'),
+    action: z.enum(['draft', 'send']).optional().default('draft').describe('Action to take: "draft" (creates and saves draft for review) or "send" (immediately dispatches email)'),
+  },
+  async ({ to, subject, body, action }) => {
+    try {
+      const result = await callExtension('GMAIL_SEND', { to, subject, body, action });
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    } catch (err: any) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Gmail outreach failed: ${err.message}` }],
+      };
+    }
+  }
+);
+
+// Tool: autoapply_linkedin_outreach
+server.tool(
+  'autoapply_linkedin_outreach',
+  'Navigates to a recruiter/founder LinkedIn profile and dispatches a personalized connection request with a grounded note or direct message.',
+  {
+    note: z.string().describe('Connection request note (strictly <= 300 characters) or direct message content'),
+    profileUrl: z.string().optional().describe('Target LinkedIn profile URL (e.g. "https://www.linkedin.com/in/recruiter-name/")'),
+    action: z.enum(['connect', 'message']).optional().default('connect').describe('Outreach action: "connect" (send invite with note) or "message" (direct chat message)'),
+  },
+  async ({ note, profileUrl, action }) => {
+    try {
+      const result = await callExtension('LINKEDIN_OUTREACH', { note, profileUrl, action });
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    } catch (err: any) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `LinkedIn outreach failed: ${err.message}` }],
+      };
+    }
+  }
+);
+
+// Tool: autoapply_universal_apply
+server.tool(
+  'autoapply_universal_apply',
+  'Autonomously parses and applies to jobs on ANY external ATS or career portal (Greenhouse, Lever, Ashby, Workday, or custom company careers page).',
+  {
+    mode: z.enum(['semi-auto', 'full-auto']).optional().default('full-auto').describe('Application mode: "semi-auto" (stops before submit) or "full-auto" (submits directly)'),
+    customPitch: z.string().optional().describe('Optional custom pitch note or cover letter text'),
+  },
+  async ({ mode, customPitch }) => {
+    try {
+      const result = await callExtension('UNIVERSAL_APPLY', { mode, customPitch });
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    } catch (err: any) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Universal ATS application failed: ${err.message}` }],
+      };
+    }
+  }
+);
+
+// Tool: autoapply_scrape_page
+server.tool(
+  'autoapply_scrape_page',
+  'Scrapes the active browser tab or specified tab, extracting page title, URL, clean text content, forms, and any detected job information.',
+  {
+    tabId: z.number().optional().describe('Optional tab ID to scrape (defaults to active tab)'),
+  },
+  async ({ tabId }) => {
+    try {
+      const result = await callExtension('SCRAPE_PAGE', { tabId });
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    } catch (err: any) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Page scrape failed: ${err.message}` }],
+      };
+    }
+  }
+);
+
+// Tool: autoapply_set_mode
+server.tool(
+  'autoapply_set_mode',
+  'Configures the agent automation pacing, daily caps, and aggressiveness level (conservative, standard, or aggressive).',
+  {
+    mode: z.enum(['conservative', 'standard', 'aggressive']).describe('Automation velocity mode: "conservative" (safe jitter & 15 daily cap), "standard" (balanced), "aggressive" (rapid pacing & high daily volume)'),
+    dailyCap: z.number().optional().describe('Optional daily application cap to configure (e.g. 50, 100, 200)'),
+  },
+  async ({ mode, dailyCap }) => {
+    try {
+      const result = await callExtension('SET_AUTOMATION_MODE', { mode, dailyCap });
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    } catch (err: any) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Failed to configure automation mode: ${err.message}` }],
+      };
+    }
+  }
+);
+
 // Connect stdio transport for the coding agent
 async function main() {
   const transport = new StdioServerTransport();

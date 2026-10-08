@@ -53,10 +53,8 @@ export default defineConfig({
       'unlimitedStorage',
     ],
     host_permissions: [
-      'https://*.linkedin.com/*',
-      'https://*.wellfound.com/*',
-      'https://*.naukri.com/*',
-      'https://*.indeed.com/*',
+      'https://*/*',
+      'http://*/*',
       'http://127.0.0.1/*',
       'http://localhost/*',
     ],

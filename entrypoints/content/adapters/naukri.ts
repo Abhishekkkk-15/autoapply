@@ -1,0 +1,172 @@
+import { JobPlatformAdapter } from './base';
+import type {
+  ScrapedJob,
+  UserProfile,
+  ApplyStepResult,
+  Platform,
+} from '@/src/lib/types';
+import {
+  simulateClick,
+  setNativeValue,
+  randomDelay,
+  waitForSelector,
+} from '@/src/lib/dom-utils';
+import { extractContactsFromJob } from '@/src/lib/extractor';
+import { generateFormAnswer } from '@/src/lib/ai';
+
+export class NaukriAdapter extends JobPlatformAdapter {
+  readonly platform: Platform = 'naukri';
+
+  isMatch(): boolean {
+    return window.location.hostname.includes('naukri.com');
+  }
+
+  async parseCurrentJob(): Promise<ScrapedJob | null> {
+    try {
+      const titleEl = document.querySelector(
+        '.jd-header-title, h1.title, .styles_title__NDjH4, h1'
+      );
+      const title = titleEl?.textContent?.trim() || 'Software Engineer';
+
+      const companyEl = document.querySelector(
+        '.jd-header-comp-name a, .styles_job-header-comp-name__a__0wJb, a.comp-name, .company-name'
+      );
+      const company = companyEl?.textContent?.trim() || 'Unknown Company';
+
+      const locationEl = document.querySelector(
+        '.loc, .styles_loc__uTsmk, .location, .styles_jhc__loc___ref2'
+      );
+      const location = locationEl?.textContent?.trim() || 'India / Remote';
+
+      const descEl = document.querySelector(
+        '.job-desc, .styles_job-desc-container__lqV4L, .jd-description, #job-description'
+      );
+      const jobDescription = descEl?.textContent?.trim() || '';
+
+      const match = window.location.pathname.match(/-(\d+)(?:\?|$)/);
+      const externalJobId = match ? match[1] : `naukri_${Math.abs(hash(title + company))}`;
+
+      // Extract recruiter details from Naukri recruiter card
+      const recruiterContainer = document.querySelector(
+        '.recruiter-details, .recruiter-info, .hirer-info, .rec-card'
+      );
+      const contacts = extractContactsFromJob(
+        jobDescription,
+        recruiterContainer || undefined
+      );
+
+      return {
+        platform: 'naukri',
+        externalJobId,
+        title,
+        company,
+        location,
+        jobUrl: window.location.href,
+        jobDescription,
+        extractedContacts: contacts,
+        canEasyApply: this.canAutoApply(),
+      };
+    } catch (err) {
+      console.error('[Naukri] Error parsing job:', err);
+      return null;
+    }
+  }
+
+  canAutoApply(): boolean {
+    const btn = this.findApplyButton();
+    if (!btn) return false;
+    const text = btn.textContent?.trim().toLowerCase() || '';
+    // If it says "company site", it requires external redirect
+    return text.includes('apply') && !text.includes('company site') && !text.includes('already applied');
+  }
+
+  private findApplyButton(): HTMLElement | null {
+    return document.querySelector<HTMLElement>(
+      'button#apply-button, button.apply-button, button[id*="apply"], .styles_apply-button__7c1QJ'
+    );
+  }
+
+  async executeApplyStep(
+    profile: UserProfile,
+    isSemiAuto: boolean
+  ): Promise<ApplyStepResult> {
+    const job = await this.parseCurrentJob();
+    if (!job) {
+      return { status: 'FAILED', message: 'Failed to parse Naukri job.' };
+    }
+
+    const pref = this.matchesPreferences(job, profile);
+    if (!pref.allow) {
+      return { status: 'SKIPPED', message: pref.reason || 'Skipped per user preference' };
+    }
+
+    const applyBtn = this.findApplyButton();
+    if (!applyBtn) {
+      return { status: 'NO_EASY_APPLY', message: 'No direct 1-click apply button on Naukri.' };
+    }
+
+    const btnText = applyBtn.textContent?.trim().toLowerCase() || '';
+    if (btnText.includes('company site')) {
+      return {
+        status: 'MANUAL_EXTERNAL',
+        message: 'This job redirects to company career site.',
+      };
+    }
+
+    // Click Apply
+    await simulateClick(applyBtn);
+    await randomDelay(1500, 2500);
+
+    // Check if questionnaire/chatbot drawer popped up
+    const questionnaire = await waitForSelector<HTMLElement>(
+      '.apply-message, .chatbot-container, .apply-questions, div[class*="questionnaire"]',
+      4000
+    );
+
+    if (questionnaire) {
+      // Answer questionnaire fields
+      const inputs = Array.from(questionnaire.querySelectorAll<HTMLInputElement>('input, textarea'));
+      for (const input of inputs) {
+        const label = input.getAttribute('placeholder') || input.name || 'Question';
+        const isNum = input.type === 'number' || label.toLowerCase().includes('ctc') || label.toLowerCase().includes('exp');
+        const answer = await generateFormAnswer(
+          label,
+          isNum ? 'number' : 'text',
+          [],
+          profile,
+          job.jobDescription
+        );
+        setNativeValue(input, answer.answer);
+        await randomDelay(100, 250);
+      }
+
+      if (isSemiAuto) {
+        questionnaire.style.outline = '4px solid #10b981';
+        return {
+          status: 'PENDING_APPROVAL',
+          needsUserApproval: true,
+          stepName: 'Naukri Questionnaire Review',
+          message: 'Questionnaire completed. Awaiting review to submit on Naukri.',
+        };
+      }
+
+      // Submit questionnaire
+      const subBtn = questionnaire.querySelector<HTMLElement>('button[type="submit"], button.send-btn, button');
+      if (subBtn) {
+        await simulateClick(subBtn);
+        await randomDelay(1000, 2000);
+      }
+    }
+
+    return {
+      status: 'SUBMITTED',
+      message: '1-Click Application submitted on Naukri.',
+    };
+  }
+}
+
+function hash(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  return h;
+}

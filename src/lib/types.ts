@@ -114,7 +114,7 @@ export interface ApplyStepResult {
   artifacts?: GeneratedArtifacts;
 }
 
-export type LLMProvider = 'openai' | 'claude' | 'groq' | 'ollama' | 'mcp' | 'custom';
+export type LLMProvider = 'openai' | 'claude' | 'groq' | 'ollama' | 'mcp' | 'custom' | 'azure';
 
 export interface McpBridgeStatus {
   connected: boolean;

@@ -76,6 +76,9 @@ export const SettingsModal: React.FC = () => {
     } else if (provider === 'claude') {
       baseUrl = 'https://api.anthropic.com/v1';
       model = 'claude-3-5-sonnet-latest';
+    } else if (provider === 'azure') {
+      baseUrl = 'https://abhishek-0588-resource.openai.azure.com/openai/v1';
+      model = 'gpt-4o';
     } else if (provider === 'groq') {
       baseUrl = 'https://api.groq.com/openai/v1';
       model = 'llama-3.3-70b-versatile';
@@ -196,6 +199,7 @@ export const SettingsModal: React.FC = () => {
             className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900 bg-white focus:ring-2 focus:ring-blue-500"
           >
             <option value="mcp">🤖 Coding Agent (MCP - Claude Code, Antigravity, Cursor) [NO API KEY REQUIRED]</option>
+            <option value="azure">Azure OpenAI (abhishek-0588-resource)</option>
             <option value="openai">OpenAI Direct API (GPT-4o, GPT-4o-mini)</option>
             <option value="claude">Anthropic Claude Direct API (Sonnet 3.5)</option>
             <option value="groq">Groq Fast Inference (Llama 3.3 70B)</option>

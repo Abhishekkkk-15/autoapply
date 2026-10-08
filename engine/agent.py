@@ -22,8 +22,27 @@ logger = logging.getLogger("autoapply.engine")
 
 def get_default_llm():
     """Initializes LLM client based on available environment variables."""
+    openai_base_url = (
+        os.getenv("OPENAI_BASE_URL")
+        or os.getenv("AZURE_OPENAI_BASE_URL")
+        or os.getenv("AZURE_OPENAI_ENDPOINT")
+    )
+    openai_key = os.getenv("OPENAI_API_KEY") or os.getenv("AZURE_OPENAI_API_KEY")
+    openai_model = os.getenv("OPENAI_MODEL") or os.getenv("AZURE_OPENAI_DEPLOYMENT") or "gpt-4o"
+
+    if openai_base_url and openai_key:
+        from browser_use import ChatOpenAI
+        headers = {}
+        if "azure" in openai_base_url.lower():
+            headers["api-key"] = openai_key
+        return ChatOpenAI(
+            model=openai_model,
+            base_url=openai_base_url,
+            api_key=openai_key,
+            default_headers=headers if headers else None,
+        )
+
     gemini_key = os.getenv("GEMINI_API_KEY")
-    openai_key = os.getenv("OPENAI_API_KEY")
     anthropic_key = os.getenv("ANTHROPIC_API_KEY")
 
     if gemini_key:
@@ -31,7 +50,7 @@ def get_default_llm():
         return ChatGoogle(model="gemini-2.5-flash")
     elif openai_key:
         from browser_use import ChatOpenAI
-        return ChatOpenAI(model="gpt-4o")
+        return ChatOpenAI(model=openai_model)
     elif anthropic_key:
         from browser_use import ChatAnthropic
         return ChatAnthropic(model="claude-3-5-sonnet-20241022")

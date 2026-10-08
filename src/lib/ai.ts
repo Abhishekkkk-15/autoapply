@@ -49,11 +49,13 @@ export async function callLLMJson<T>(
     return await callAnthropicClaude<T>(systemPrompt, userPrompt, activeConfig);
   }
 
-  // 3. OpenAI-compatible Handler (OpenAI, Groq, Ollama, Custom)
+  // 3. OpenAI-compatible Handler (OpenAI, Groq, Ollama, Custom, Azure)
   let endpoint = activeConfig.baseUrl.trim();
   if (!endpoint) {
     endpoint =
-      activeConfig.provider === 'groq'
+      activeConfig.provider === 'azure'
+        ? 'https://abhishek-0588-resource.openai.azure.com/openai/v1'
+        : activeConfig.provider === 'groq'
         ? 'https://api.groq.com/openai/v1'
         : activeConfig.provider === 'ollama'
         ? 'http://localhost:11434/v1'
@@ -67,7 +69,9 @@ export async function callLLMJson<T>(
   };
 
   if (activeConfig.apiKey && activeConfig.apiKey.trim().length > 0) {
-    headers['Authorization'] = `Bearer ${activeConfig.apiKey.trim()}`;
+    const key = activeConfig.apiKey.trim();
+    headers['Authorization'] = `Bearer ${key}`;
+    headers['api-key'] = key;
   }
 
   const payload: any = {

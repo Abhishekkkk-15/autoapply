@@ -1,9 +1,39 @@
-#!/usr/bin/env node
 import http from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { WebSocketServer, WebSocket } from 'ws';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const execFileAsync = promisify(execFile);
+
+async function isCdpAvailable(cdpUrl = 'http://localhost:9222'): Promise<boolean> {
+  try {
+    const res = await fetch(`${cdpUrl}/json/version`, { signal: AbortSignal.timeout(1500) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function runBrowserUseEngine(args: string[]): Promise<any> {
+  const pythonPath = path.resolve(__dirname, '../engine/.venv/bin/python');
+  const bridgePath = path.resolve(__dirname, '../engine/bridge.py');
+  const { stdout, stderr } = await execFileAsync(pythonPath, [bridgePath, ...args], {
+    cwd: path.resolve(__dirname, '..'),
+    timeout: 300000,
+  });
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    return { output: stdout, stderr };
+  }
+}
 
 const BRIDGE_PORT = Number(process.env.MCP_BRIDGE_PORT) || 8765;
 
@@ -251,6 +281,33 @@ server.tool(
   },
   async ({ mode, customPitch, customCoverLetter, customAnswers }) => {
     try {
+      const cdpActive = await isCdpAvailable();
+      if (cdpActive) {
+        // Preferred: Use browser-use visual CDP engine
+        const args = ['apply', '--mode', mode || 'semi-auto'];
+        const pitchText = customPitch || customCoverLetter;
+        if (pitchText) {
+          args.push('--pitch', pitchText);
+        }
+        const cdpResult = await runBrowserUseEngine(args);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  engine: 'browser-use (Visual CDP Agent)',
+                  result: cdpResult,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      // Fallback: Extension content script
       const result = await callExtension('APPLY_CURRENT_JOB', {
         mode: mode || 'semi-auto',
         customPitch,
@@ -271,6 +328,55 @@ server.tool(
         content: [{ type: 'text', text: `Failed to apply to current job: ${err.message}` }],
       };
     }
+  }
+);
+
+// Tool: autoapply_cdp_status
+server.tool(
+  'autoapply_cdp_status',
+  'Checks if Chrome DevTools Protocol (CDP) on http://localhost:9222 is active for visual browser-use agents.',
+  {},
+  async () => {
+    try {
+      const res = await fetch('http://localhost:9222/json/version', { signal: AbortSignal.timeout(2000) });
+      if (res.ok) {
+        const data = await res.json();
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  cdpActive: true,
+                  message: 'Chrome DevTools Protocol (CDP) is active and ready for browser-use agents.',
+                  browser: data.Browser,
+                  protocolVersion: data['Protocol-Version'],
+                  webSocketDebuggerUrl: data.webSocketDebuggerUrl,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+    } catch {}
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              cdpActive: false,
+              message: 'Chrome DevTools Protocol is not running on port 9222.',
+              instruction: 'Run ./scripts/launch-chrome-cdp.sh to launch or restart Chrome with CDP enabled.',
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
   }
 );
 

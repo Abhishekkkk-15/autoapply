@@ -210,16 +210,35 @@ export class WellfoundAdapter extends JobPlatformAdapter {
   findApplyButton(container: HTMLElement | Document = document): HTMLElement | null {
     const buttons = Array.from(
       container.querySelectorAll<HTMLElement>(
-        'button[data-test="ApplyButton"], button[data-test="QuickApplyButton"], button, a[role="button"]'
+        'button[data-test="ApplyButton"], button[data-test="QuickApplyButton"], button[data-test*="apply" i], button, a[role="button"], a[data-test*="apply" i], a[class*="apply" i], a'
       )
     );
     for (const b of buttons) {
       if (b.offsetWidth === 0 && b.offsetHeight === 0 && b.getClientRects().length === 0) continue;
       const text = b.textContent?.trim().toLowerCase() || '';
+      const test = b.getAttribute('data-test')?.toLowerCase() || '';
+      const aria = b.getAttribute('aria-label')?.toLowerCase() || '';
+      const href = (b as HTMLAnchorElement).href || '';
+
+      // Skip search URLs, pagination, or navigation tabs
+      if (href.includes('/jobs?')) continue;
       if (
-        (text.includes('apply') || text.includes('quick apply')) &&
-        !text.includes('applied') &&
-        !text.includes('save')
+        text.includes('application') ||
+        text.includes('applied') ||
+        text.includes('save') ||
+        text.includes('saved')
+      ) {
+        continue;
+      }
+
+      if (
+        test.includes('apply') ||
+        aria.includes('apply') ||
+        text === 'apply' ||
+        text === 'quick apply' ||
+        text === 'easy apply' ||
+        text.startsWith('apply') ||
+        (text.includes('apply') && text.length < 35)
       ) {
         return b;
       }
@@ -391,10 +410,18 @@ export class WellfoundAdapter extends JobPlatformAdapter {
     let modal = this.findApplyModal();
 
     if (!noteInput) {
-      // Look for apply button on selected card first, then document
+      // Look for apply button on selected card first, then document with brief wait
       let applyBtn = this.selectedCard ? this.findApplyButton(this.selectedCard) : null;
       if (!applyBtn) {
         applyBtn = this.findApplyButton(document);
+      }
+      if (!applyBtn) {
+        for (let i = 0; i < 5; i++) {
+          await randomDelay(400, 600);
+          applyBtn = this.selectedCard ? this.findApplyButton(this.selectedCard) : null;
+          if (!applyBtn) applyBtn = this.findApplyButton(document);
+          if (applyBtn) break;
+        }
       }
       if (!applyBtn) {
         return { status: 'NO_EASY_APPLY', message: 'No active Apply button found on Wellfound.' };
@@ -657,7 +684,7 @@ export class WellfoundAdapter extends JobPlatformAdapter {
         id = card.getAttribute('data-job-id')!;
       }
       if (!id) {
-        id = `wf_${i}_${Math.abs(hash(title + '_' + company))}`;
+        id = `wf_${Math.abs(hash(title + '_' + company))}`;
       }
 
       if (seenIds.has(id)) continue;
@@ -711,6 +738,14 @@ export class WellfoundAdapter extends JobPlatformAdapter {
     // Store card reference for executeApplyStep
     this.selectedCard = card;
 
+    // Trigger click on the card to open its job details on the right pane
+    try {
+      const clickTarget =
+        card.querySelector<HTMLElement>('div[class*="header"], h4, h3, div[class*="title"]') || card;
+      await simulateClick(clickTarget);
+      await randomDelay(800, 1400);
+    } catch {}
+
     // DO NOT click anchor 'a[href*="/jobs/"]' as it navigates away and destroys the content script session!
     const titleEl = card.querySelector<HTMLElement>(
       '[data-test="JobTitle"], a[href*="/jobs/"], .styles_title__2_jV3, span[class*="title"], h3[class*="title"], h4'
@@ -734,7 +769,7 @@ export class WellfoundAdapter extends JobPlatformAdapter {
       externalJobId = card.getAttribute('data-job-id')!;
     }
     if (!externalJobId) {
-      externalJobId = `wf_${index}_${Math.abs(hash(title + '_' + company))}`;
+      externalJobId = `wf_${Math.abs(hash(title + '_' + company))}`;
     }
 
     const locationEl = card.querySelector<HTMLElement>(
@@ -790,20 +825,82 @@ export class WellfoundAdapter extends JobPlatformAdapter {
     this.selectedCard = null;
     this.selectedJob = null;
 
-    const nextBtn = document.querySelector<HTMLElement>(
-      'button[data-test="load-more"], button[data-test="NextPage"], button[aria-label="Next"], button[aria-label="Next Page"]'
+    // 1. Look for explicit next / load more buttons
+    const buttons = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        'button[data-test="load-more"], button[data-test="NextPage"], button[aria-label*="Next" i], button, a[role="button"]'
+      )
     );
-    if (nextBtn) {
-      nextBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      await randomDelay(400, 800);
-      await simulateClick(nextBtn);
-      await randomDelay(2500, 3500);
-      return true;
+    for (const b of buttons) {
+      if (b.offsetWidth === 0 && b.offsetHeight === 0 && b.getClientRects().length === 0) continue;
+      const t = b.textContent?.trim().toLowerCase() || '';
+      const test = b.getAttribute('data-test')?.toLowerCase() || '';
+      if (
+        test.includes('load-more') ||
+        test.includes('load_more') ||
+        test.includes('nextpage') ||
+        t.includes('load more') ||
+        t.includes('show more') ||
+        t.includes('view more') ||
+        t.includes('see more jobs') ||
+        t === 'more jobs' ||
+        t === 'next' ||
+        t === 'next page'
+      ) {
+        b.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        await randomDelay(400, 800);
+        await simulateClick(b);
+        await randomDelay(2500, 3500);
+        return true;
+      }
     }
-    // Infinite scroll fallback on Wellfound: scroll down to trigger dynamic loading
-    window.scrollBy({ top: 1200, behavior: 'smooth' });
-    await randomDelay(2000, 3000);
-    return true;
+
+    // 2. Infinite scroll fallback on Wellfound
+    const initialCards = this.getJobCardElements();
+    const initialCount = initialCards.length;
+
+    if (initialCount > 0) {
+      const lastCard = initialCards[initialCount - 1];
+      // Scroll bottom-most card into view so sentinel / intersection observers fire
+      lastCard.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      await randomDelay(300, 600);
+
+      // Find any scrollable parent container of the job cards list
+      let scrollEl: HTMLElement | null = lastCard.parentElement;
+      while (scrollEl && scrollEl !== document.body && scrollEl !== document.documentElement) {
+        const style = window.getComputedStyle(scrollEl);
+        if (
+          (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+          scrollEl.scrollHeight > scrollEl.clientHeight
+        ) {
+          break;
+        }
+        scrollEl = scrollEl.parentElement;
+      }
+
+      if (scrollEl && scrollEl !== document.body && scrollEl !== document.documentElement) {
+        scrollEl.scrollTop = scrollEl.scrollHeight;
+        scrollEl.dispatchEvent(new Event('scroll', { bubbles: true }));
+      }
+    }
+
+    // Also scroll the window to the bottom
+    window.scrollBy({ top: 1500, behavior: 'smooth' });
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    window.dispatchEvent(new Event('scroll', { bubbles: true }));
+
+    // Wait and check if new cards mount
+    for (let i = 0; i < 7; i++) {
+      await randomDelay(400, 600);
+      if (this.getJobCardElements().length > initialCount) {
+        return true;
+      }
+    }
+
+    // Additional nudge if cards haven't mounted yet
+    window.scrollBy({ top: 800, behavior: 'smooth' });
+    await randomDelay(1200, 2000);
+    return this.getJobCardElements().length > initialCount;
   }
 }
 

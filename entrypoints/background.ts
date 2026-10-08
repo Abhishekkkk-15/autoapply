@@ -639,12 +639,14 @@ export default defineBackground(() => {
       return;
     }
 
+    const nextStatus = isSearchRunning ? 'RUNNING' : 'IDLE';
+
     if (result.status === 'MANUAL_EXTERNAL') {
       if (job) {
         saveJobAndArtifacts(job, 'MANUAL_EXTERNAL', customArtifacts);
       }
       await updateState({
-        status: 'IDLE',
+        status: nextStatus,
         currentStepMessage: 'Job requires external company site application.',
       });
       await recordLog('info', `External application link detected for ${job?.title}`);
@@ -656,7 +658,7 @@ export default defineBackground(() => {
         saveJobAndArtifacts(job, 'SKIPPED', customArtifacts);
       }
       await updateState({
-        status: 'IDLE',
+        status: nextStatus,
         currentStepMessage: result.message || 'Job skipped.',
       });
       await recordLog('info', `Skipped job: ${result.message}`);
@@ -668,7 +670,7 @@ export default defineBackground(() => {
         saveJobAndArtifacts(job, 'FAILED', customArtifacts);
       }
       await updateState({
-        status: 'ERROR',
+        status: isSearchRunning ? 'RUNNING' : 'ERROR',
         lastError: result.message,
         currentStepMessage: `Failed: ${result.message}`,
       });
@@ -678,7 +680,7 @@ export default defineBackground(() => {
 
     if (result.status === 'STEP_ADVANCED') {
       await updateState({
-        status: 'IDLE',
+        status: nextStatus,
         currentStepMessage: result.message || 'Advanced through application step.',
       });
       await recordLog('info', `Apply step result: ${result.message}`);
@@ -687,7 +689,7 @@ export default defineBackground(() => {
 
     // Default fallback for any other unexpected status
     await updateState({
-      status: 'IDLE',
+      status: nextStatus,
       currentStepMessage: result.message || `Application process finished with status: ${result.status}`,
     });
   }
@@ -870,18 +872,25 @@ export default defineBackground(() => {
       let tabId: number;
       if (currentTab?.id) {
         tabId = currentTab.id;
-        await chrome.tabs.update(tabId, { url: searchUrl });
+        if (platform === 'wellfound' && currentTab.url?.includes('wellfound.com/jobs')) {
+          await recordLog('info', `Active tab is already on Wellfound jobs page: ${currentTab.url}. Preserving active view.`);
+        } else {
+          await chrome.tabs.update(tabId, { url: searchUrl });
+          await waitForTabComplete(tabId);
+          await delay(3500);
+        }
       } else {
         const createdTab = await chrome.tabs.create({ url: searchUrl, active: true });
         tabId = createdTab.id!;
+        await waitForTabComplete(tabId);
+        await delay(3500);
       }
       activeTabId = tabId;
 
-      await waitForTabComplete(tabId);
-      await delay(3500); // Allow DOM and React/Angular apps to hydrate
-
       let currentPage = 1;
       let totalAppliedInRun = 0;
+      const seenCardIds = new Set<string>();
+      let emptyBatchesCount = 0;
 
       while (isSearchRunning && totalAppliedInRun < maxJobs) {
         const currentSettings = await getAppSettings();
@@ -914,11 +923,33 @@ export default defineBackground(() => {
 
         const totalCards = cardInfo?.count || 0;
         if (totalCards === 0) {
-          await recordLog('warn', `No job cards found on page ${currentPage}. Finishing search.`);
+          await recordLog('warn', `No job cards found on page/batch ${currentPage}. Finishing search.`);
           break;
         }
 
-        await recordLog('info', `Found ${totalCards} job postings on page ${currentPage}. Processing card by card...`);
+        // Check for unseen cards in this batch
+        const unseenCards = (cardInfo.cards || []).filter((c: any) => {
+          const k = c?.id || `${c?.title}_${c?.company}`;
+          return k && !seenCardIds.has(k);
+        });
+
+        if (unseenCards.length === 0) {
+          emptyBatchesCount++;
+          if (emptyBatchesCount >= 3) {
+            await recordLog('info', `No new job postings loaded after multiple scroll attempts. Finished searching.`);
+            break;
+          }
+          await recordLog('info', `All currently loaded cards have been processed. Triggering scroll to load more (attempt ${emptyBatchesCount}/3)...`);
+          try {
+            await chrome.tabs.sendMessage(tabId, { type: 'PAGINATE_NEXT_PAGE' } as ExtensionMessage);
+          } catch {}
+          await delay(3500);
+          currentPage++;
+          continue;
+        }
+
+        emptyBatchesCount = 0;
+        await recordLog('info', `Found ${totalCards} total job postings loaded (${unseenCards.length} new in batch ${currentPage}). Processing new cards...`);
 
         for (let cardIdx = 0; cardIdx < totalCards; cardIdx++) {
           if (!isSearchRunning || totalAppliedInRun >= maxJobs) break;
@@ -931,6 +962,13 @@ export default defineBackground(() => {
           }
 
           const card = cardInfo.cards[cardIdx];
+          const cardKey = card?.id || `${card?.title}_${card?.company}`;
+          if (cardKey && seenCardIds.has(cardKey)) {
+            continue; // Skip already evaluated cards in previous scroll batches
+          }
+          if (cardKey) {
+            seenCardIds.add(cardKey);
+          }
 
           // Early freshness check if card metadata already contains posting date
           if (card?.postedDate) {
@@ -955,7 +993,7 @@ export default defineBackground(() => {
               totalApplied: totalAppliedInRun,
               maxJobs,
             },
-            currentStepMessage: `[P${currentPage} | Card ${cardIdx + 1}/${totalCards}] Opening "${card?.title || 'Job'}"...`,
+            currentStepMessage: `[Batch ${currentPage} | Card ${cardIdx + 1}/${totalCards}] Opening "${card?.title || 'Job'}"...`,
           });
 
           // Select card with retry for connection or hydration delays
@@ -964,7 +1002,7 @@ export default defineBackground(() => {
             try {
               selectRes = await chrome.tabs.sendMessage(tabId, {
                 type: 'SELECT_SEARCH_RESULT_CARD',
-                payload: { index: cardIdx },
+                payload: { index: card?.index ?? cardIdx },
               } as ExtensionMessage);
               break;
             } catch (err: any) {
@@ -1079,14 +1117,14 @@ export default defineBackground(() => {
 
         // Paginate to next page if more needed
         if (isSearchRunning && totalAppliedInRun < maxJobs) {
-          await recordLog('info', `Completed page ${currentPage}. Attempting to paginate to page ${currentPage + 1}...`);
+          await recordLog('info', `Completed page/batch ${currentPage}. Attempting to load next batch...`);
           let pageSuccess = false;
           try {
             const pageRes = await chrome.tabs.sendMessage(tabId, { type: 'PAGINATE_NEXT_PAGE' } as ExtensionMessage);
             pageSuccess = !!pageRes?.success;
           } catch {}
 
-          if (pageSuccess) {
+          if (pageSuccess || platform === 'wellfound') {
             currentPage++;
             await delay(4000);
           } else {

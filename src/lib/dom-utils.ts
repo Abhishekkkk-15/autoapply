@@ -22,12 +22,25 @@ export function setNativeValue(
     ? window.HTMLTextAreaElement.prototype
     : window.HTMLInputElement.prototype;
 
+  // Clear React 16/17/18/19 internal value tracker so synthetic events trigger
+  const tracker = (element as any)._valueTracker;
+  if (tracker) {
+    tracker.setValue('');
+  }
+
   const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
   if (descriptor && descriptor.set) {
     descriptor.set.call(element, value);
   } else {
     element.value = value;
   }
+
+  // Attempt execCommand for full React fiber input capture
+  try {
+    element.focus();
+    element.select?.();
+    document.execCommand('insertText', false, value);
+  } catch {}
 
   // Dispatch both 'input' and 'change' events with bubbling
   element.dispatchEvent(new Event('input', { bubbles: true }));

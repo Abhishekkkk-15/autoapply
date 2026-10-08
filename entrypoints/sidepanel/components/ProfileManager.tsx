@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   Briefcase,
   X,
+  Clock,
 } from 'lucide-react';
 import type { UserProfile, CustomQuestionAnswer } from '@/src/lib/types';
 import { getUserProfile, saveUserProfile, DEFAULT_USER_PROFILE } from '@/src/lib/db';
@@ -516,6 +517,38 @@ export const ProfileManager: React.FC = () => {
               >
                 Block
               </button>
+            </div>
+          </div>
+
+          {/* Job Age / Freshness Filter */}
+          <div className="flex flex-col gap-2 pt-2 border-t border-slate-100">
+            <label className="font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+              <Clock className="w-4 h-4 text-amber-600" />
+              Maximum Job Posting Age (Days)
+            </label>
+            <p className="text-[11px] text-slate-500">
+              Never apply to jobs posted older than this cutoff (default: 30 days = 1 month):
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min="1"
+                max="90"
+                value={profile.jobPreferences?.maxDaysOld ?? 30}
+                onChange={(e) =>
+                  setProfile({
+                    ...profile,
+                    jobPreferences: {
+                      ...profile.jobPreferences,
+                      maxDaysOld: parseInt(e.target.value, 10) || 30,
+                    },
+                  })
+                }
+                className="w-24 px-3 py-1.5 border border-slate-300 rounded-lg text-slate-900 font-semibold"
+              />
+              <span className="text-slate-600 font-medium">
+                days (skips jobs posted &gt; {profile.jobPreferences?.maxDaysOld ?? 30} days ago)
+              </span>
             </div>
           </div>
         </div>

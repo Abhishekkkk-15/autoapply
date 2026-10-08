@@ -147,7 +147,7 @@ export abstract class JobPlatformAdapter {
 - **Card-by-Card Traversal:** Asks content script for visible job cards on the page, smoothly scrolls each into view, simulates real user click, and waits for detail pane hydration.
 - **Three-Tier Pre-Apply Filtering:**
   1. *Deduplication:* Checks IndexedDB (`db.appliedJobs`) to avoid re-applying.
-  2. *Preference & Blacklist:* Verifies company blacklist and target roles whitelist.
+  2. *Preference, Blacklist & Freshness:* Verifies company blacklist, target roles whitelist, and rejects jobs posted > 30 days ago (`maxDaysOld`).
   3. *Easy Apply Verification:* Confirms 1-click / Easy Apply modal presence.
 - **Approval Flow in Semi-Auto:** Pauses at the final Review step and emits `WAITING_APPROVAL`. Once approved (via Side Panel UI button or MCP `autoapply_approve_pending`), the loop seamlessly continues to the next job card.
 - **Multi-Page Pagination:** Automatically clicks "Next Page" or increments URL pagination offset (`&start=25` / `&start=10`) when all cards on the current page are processed.

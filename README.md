@@ -13,6 +13,10 @@ A production-ready, modular Manifest V3 Chrome Extension and Model Context Proto
 - **Autonomous Multi-Page Search & Apply Engine (`src/lib/search-urls.ts`):**
   - Formulates deep search queries with Easy Apply (`f_AL=true`) and Remote (`f_WT=2`) platform filters.
   - Navigates search result cards, deduplicates against previous application history in Dexie DB, handles multi-page pagination, and applies continuously until session ceilings are reached.
+- **Posting Freshness Cutoff (Max 30 Days / 1 Month):**
+  - Automatically incorporates date filters (`f_TPR=r2592000` on LinkedIn, `fromage=30` on Indeed, `days=30` on Naukri).
+  - Inspects DOM posting dates (`"1 month ago"`, `"30+ days ago"`, `"2 months ago"`) and instantly skips stale roles before applying.
+  - Fully customizable in Side Panel Profile Manager (`maxDaysOld`, default: 30 days).
 - **Manifest V3 & WXT Framework:** High-performance Vite compilation with Chrome Side Panel API integration (`chrome.sidePanel`).
 - **Controlled Component DOM Automation (`src/lib/dom-utils.ts`):**
   - Native prototype property descriptors (`setNativeValue`, `setNativeSelectValue`) to cleanly trigger React, Angular, and Vue state updates.

@@ -56,6 +56,8 @@ export class NaukriAdapter extends JobPlatformAdapter {
         recruiterContainer || undefined
       );
 
+      const postedDate = this.extractPostedDate();
+
       return {
         platform: 'naukri',
         externalJobId,
@@ -66,11 +68,37 @@ export class NaukriAdapter extends JobPlatformAdapter {
         jobDescription,
         extractedContacts: contacts,
         canEasyApply: this.canAutoApply(),
+        postedDate,
       };
     } catch (err) {
       console.error('[Naukri] Error parsing job:', err);
       return null;
     }
+  }
+
+  private extractPostedDate(): string {
+    const selectors = [
+      'span.day',
+      'span[class*="posted-by"]',
+      '.job-desc-posted span',
+      'span[class*="styles_posted-by"]',
+      'span[class*="styles_jhc__posted"]',
+      '.job-header .date',
+    ];
+    for (const sel of selectors) {
+      const els = document.querySelectorAll(sel);
+      for (const el of Array.from(els)) {
+        const text = el.textContent?.trim() || '';
+        if (
+          /(?:ago|posted|day|days|month|hour|today|few hours)/i.test(text) &&
+          !text.includes('₹') &&
+          text.length < 50
+        ) {
+          return text;
+        }
+      }
+    }
+    return '';
   }
 
   canAutoApply(): boolean {

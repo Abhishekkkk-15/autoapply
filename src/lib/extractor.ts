@@ -172,3 +172,97 @@ export function extractContactsFromJob(
     recruiterName,
   };
 }
+
+/**
+ * Parses human-readable posting dates (e.g., "Posted 1 month ago", "30+ days ago",
+ * "2w ago", "3 days ago") and calculates approximate age in days.
+ */
+export function parsePostedAgeInDays(text?: string): number | null {
+  if (!text) return null;
+  const lower = text.toLowerCase().trim();
+
+  // Fresh posts: hours, minutes, today, just posted
+  if (
+    lower.includes('just posted') ||
+    lower.includes('hour') ||
+    lower.includes('minute') ||
+    lower.includes('today') ||
+    lower.includes('just now')
+  ) {
+    return 0;
+  }
+
+  if (lower.includes('yesterday')) {
+    return 1;
+  }
+
+  // Years: e.g. "1 year ago", "2 years ago", "1yr ago"
+  const yearMatch = lower.match(/(\d+)\s*(?:year|yr)s?\s*ago/);
+  if (yearMatch) {
+    return parseInt(yearMatch[1], 10) * 365;
+  }
+
+  // Months: e.g. "1 month ago", "2 months ago", "1mo ago", "3 mo ago"
+  const monthMatch = lower.match(/(\d+)\s*(?:month|mo)s?\s*ago/);
+  if (monthMatch) {
+    return parseInt(monthMatch[1], 10) * 30;
+  }
+
+  // "a month ago", "month ago", "months ago", "1mo ago" without standalone leading digit
+  if (
+    lower.includes('month ago') ||
+    lower.includes('a month ago') ||
+    lower.includes('months ago') ||
+    lower.includes('1mo ago')
+  ) {
+    return 30;
+  }
+
+  // Weeks: e.g. "3 weeks ago", "4 weeks ago", "3w ago", "4w ago"
+  const weekMatch = lower.match(/(\d+)\s*(?:week|wk|w)s?\s*ago/);
+  if (weekMatch) {
+    return parseInt(weekMatch[1], 10) * 7;
+  }
+  if (lower.includes('a week ago') || lower.includes('week ago')) {
+    return 7;
+  }
+
+  // Plus days: e.g. "30+ days ago", "30+ days", "14+ days ago"
+  const plusDayMatch = lower.match(/(\d+)\+\s*(?:day|d)s?(?:\s*ago)?/);
+  if (plusDayMatch) {
+    return parseInt(plusDayMatch[1], 10) + 1;
+  }
+
+  // Days: e.g. "14 days ago", "5d ago", "3 days ago"
+  const dayMatch = lower.match(/(\d+)\s*(?:day|d)s?\s*ago/);
+  if (dayMatch) {
+    return parseInt(dayMatch[1], 10);
+  }
+
+  // Explicit catch for "30+ days"
+  if (lower.includes('30+ days') || lower.includes('30+ day')) {
+    return 31;
+  }
+
+  return null;
+}
+
+/**
+ * Checks whether a job posting exceeds the maximum allowed age (default 30 days / 1 month).
+ */
+export function isJobPostedTooOld(
+  postedDateText?: string,
+  maxDays = 30
+): { tooOld: boolean; ageDays?: number } {
+  if (!postedDateText) {
+    return { tooOld: false };
+  }
+  const ageDays = parsePostedAgeInDays(postedDateText);
+  if (ageDays === null) {
+    return { tooOld: false };
+  }
+  return {
+    tooOld: ageDays >= maxDays,
+    ageDays,
+  };
+}

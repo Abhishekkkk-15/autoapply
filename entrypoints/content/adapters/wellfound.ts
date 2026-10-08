@@ -54,6 +54,8 @@ export class WellfoundAdapter extends JobPlatformAdapter {
         document.querySelector('[data-test="RecruiterCard"], div[class*="recruiter"]') || undefined
       );
 
+      const postedDate = this.extractPostedDate();
+
       return {
         platform: 'wellfound',
         externalJobId,
@@ -64,11 +66,36 @@ export class WellfoundAdapter extends JobPlatformAdapter {
         jobDescription,
         extractedContacts: contacts,
         canEasyApply: this.canAutoApply(),
+        postedDate,
       };
     } catch (err) {
       console.error('[Wellfound] Error parsing job:', err);
       return null;
     }
+  }
+
+  private extractPostedDate(): string {
+    const selectors = [
+      '[data-test="JobListingPostingDate"]',
+      'span[class*="listingDate"]',
+      'span[class*="posted"]',
+      'span[class*="styles_posted"]',
+      'time',
+    ];
+    for (const sel of selectors) {
+      const els = document.querySelectorAll(sel);
+      for (const el of Array.from(els)) {
+        const text = el.textContent?.trim() || '';
+        if (
+          /(?:ago|posted|active|today|just posted|\d+[wdm])/i.test(text) &&
+          !text.includes('$') &&
+          text.length < 50
+        ) {
+          return text;
+        }
+      }
+    }
+    return '';
   }
 
   canAutoApply(): boolean {

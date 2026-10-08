@@ -11,6 +11,7 @@ export interface JobPreferences {
   blacklistedCompanies: string[];
   remoteOnly: boolean;
   minSalary: number;
+  maxDaysOld?: number; // Maximum age of job in days (default: 30 days / 1 month)
 }
 
 export interface CustomQuestionAnswer {

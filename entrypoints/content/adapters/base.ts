@@ -5,6 +5,7 @@ import type {
   Platform,
   CustomQuestionAnswer,
 } from '@/src/lib/types';
+import { isJobPostedTooOld } from '@/src/lib/extractor';
 
 export interface SearchCardInfo {
   index: number;
@@ -12,6 +13,7 @@ export interface SearchCardInfo {
   title?: string;
   company?: string;
   isEasyApply?: boolean;
+  postedDate?: string;
 }
 
 export abstract class JobPlatformAdapter {
@@ -68,10 +70,10 @@ export abstract class JobPlatformAdapter {
   }
 
   /**
-   * Helper to check if current job matches user blacklist/whitelist preferences
+   * Helper to check if current job matches user blacklist/whitelist/freshness preferences
    */
   matchesPreferences(job: ScrapedJob, profile: UserProfile): { allow: boolean; reason?: string } {
-    const { blacklistedCompanies, targetRoles, minSalary } = profile.jobPreferences;
+    const { blacklistedCompanies, targetRoles, maxDaysOld } = profile.jobPreferences;
 
     // Check blacklist
     if (blacklistedCompanies?.length) {
@@ -93,6 +95,18 @@ export abstract class JobPlatformAdapter {
         return {
           allow: false,
           reason: `Job title "${job.title}" does not match target roles filter.`,
+        };
+      }
+    }
+
+    // Check posting date freshness (default max 30 days / 1 month)
+    const limitDays = maxDaysOld ?? 30;
+    if (job.postedDate) {
+      const { tooOld, ageDays } = isJobPostedTooOld(job.postedDate, limitDays);
+      if (tooOld) {
+        return {
+          allow: false,
+          reason: `Job was posted "${job.postedDate}" (~${ageDays} days ago), exceeding the ${limitDays}-day limit.`,
         };
       }
     }

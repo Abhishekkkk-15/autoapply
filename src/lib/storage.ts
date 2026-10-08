@@ -23,6 +23,7 @@ export const DEFAULT_USER_PROFILE: UserProfile = {
     blacklistedCompanies: [],
     remoteOnly: false,
     minSalary: 0,
+    maxDaysOld: 30,
   },
   customAnswers: [],
 };

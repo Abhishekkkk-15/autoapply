@@ -19,6 +19,8 @@ export function buildJobSearchUrl(params: SearchAndApplyParams, page = 1): strin
       }
       // f_AL=true filters for Easy Apply only
       url.searchParams.set('f_AL', 'true');
+      // f_TPR=r2592000 filters for jobs posted in past month (30 days)
+      url.searchParams.set('f_TPR', 'r2592000');
       if (remoteOnly) {
         // f_WT=2 is LinkedIn filter for On-site/remote: Remote
         url.searchParams.set('f_WT', '2');
@@ -37,6 +39,8 @@ export function buildJobSearchUrl(params: SearchAndApplyParams, page = 1): strin
       }
       // iafilter=1 filters for "Easily apply" on Indeed
       url.searchParams.set('iafilter', '1');
+      // fromage=30 filters for jobs posted within the last 30 days (1 month)
+      url.searchParams.set('fromage', '30');
       if (remoteOnly) {
         url.searchParams.set('sc', '0kf:attr(DS3S6);');
       }
@@ -60,7 +64,8 @@ export function buildJobSearchUrl(params: SearchAndApplyParams, page = 1): strin
     case 'naukri': {
       const qSlug = query.toLowerCase().replace(/[^a-z0-9]+/g, '-');
       const locSlug = location ? `-in-${location.toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : '';
-      return `https://www.naukri.com/${qSlug}-jobs${locSlug}${page > 1 ? `-${page}` : ''}`;
+      const base = `https://www.naukri.com/${qSlug}-jobs${locSlug}${page > 1 ? `-${page}` : ''}`;
+      return `${base}?days=30`;
     }
 
     default:

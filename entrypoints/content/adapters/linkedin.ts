@@ -72,6 +72,9 @@ export class LinkedInAdapter extends JobPlatformAdapter {
       // 7. Check if Easy Apply is present
       const canEasyApply = this.canAutoApply();
 
+      // 8. Extract Posted Date
+      const postedDate = this.extractPostedDate();
+
       return {
         platform: 'linkedin',
         externalJobId,
@@ -82,11 +85,38 @@ export class LinkedInAdapter extends JobPlatformAdapter {
         jobDescription,
         extractedContacts: contactInfo,
         canEasyApply,
+        postedDate,
       };
     } catch (err) {
       console.error('[LinkedIn] Error parsing job:', err);
       return null;
     }
+  }
+
+  extractPostedDate(): string {
+    const selectors = [
+      '.jobs-unified-top-card__posted-date',
+      '.job-details-jobs-unified-top-card__primary-description-container span',
+      'span.tvm__text--positive',
+      '.jobs-unified-top-card__subtitle-primary-grouping span',
+      '.topcard__flavor--metadata span',
+      '.top-card-layout__entity-info time',
+      'span.jobs-unified-top-card__bullet',
+    ];
+    for (const sel of selectors) {
+      const elements = document.querySelectorAll(sel);
+      for (const el of Array.from(elements)) {
+        const text = el.textContent?.trim() || '';
+        if (
+          /(?:ago|posted|reposted|yesterday|today|hour|minute|day|week|month|year)/i.test(text) &&
+          !text.includes('$') &&
+          text.length < 50
+        ) {
+          return text;
+        }
+      }
+    }
+    return '';
   }
 
   canAutoApply(): boolean {
@@ -140,6 +170,18 @@ export class LinkedInAdapter extends JobPlatformAdapter {
       ...profile,
       customAnswers: customAnswersList,
     };
+
+    // Parse job to check preferences (roles, blacklist, posting freshness)
+    const initialJob = await this.parseCurrentJob();
+    if (initialJob) {
+      const pref = this.matchesPreferences(initialJob, activeProfile);
+      if (!pref.allow) {
+        return {
+          status: 'SKIPPED',
+          message: pref.reason || 'Skipped per user preference.',
+        };
+      }
+    }
 
     // Check if modal is already open
     let modal = this.getModalElement();
@@ -550,12 +592,27 @@ export class LinkedInAdapter extends JobPlatformAdapter {
       const text = card.textContent?.toLowerCase() || '';
       const isEasyApply = text.includes('easy apply');
 
+      // Extract card posting date text if present
+      const timeEl = card.querySelector('time, .job-card-container__footer-item, [class*="footer-item"]');
+      let cardPostedDate = timeEl?.textContent?.trim() || '';
+      if (!cardPostedDate) {
+        const spans = Array.from(card.querySelectorAll('span, time'));
+        for (const s of spans) {
+          const st = s.textContent?.trim() || '';
+          if (/(?:ago|today|yesterday|\d+[wdm])/i.test(st) && st.length < 35 && !st.includes('$')) {
+            cardPostedDate = st;
+            break;
+          }
+        }
+      }
+
       cards.push({
         index: i,
         id,
         title,
         company,
         isEasyApply,
+        postedDate: cardPostedDate || undefined,
       });
     }
 

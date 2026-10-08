@@ -56,6 +56,7 @@ export class IndeedAdapter extends JobPlatformAdapter {
       }
 
       const contacts = extractContactsFromJob(jobDescription);
+      const postedDate = this.extractPostedDate();
 
       return {
         platform: 'indeed',
@@ -67,11 +68,36 @@ export class IndeedAdapter extends JobPlatformAdapter {
         jobDescription,
         extractedContacts: contacts,
         canEasyApply: this.canAutoApply(),
+        postedDate,
       };
     } catch (err) {
       console.error('[Indeed] Error parsing job:', err);
       return null;
     }
+  }
+
+  private extractPostedDate(): string {
+    const selectors = [
+      'span.date',
+      'span[data-testid="myJobsStateDate"]',
+      '.jobsearch-JobMetadataFooter span',
+      '.jobsearch-HiringInsights-icon--jobAge + span',
+      'span.css-ky7nrm',
+    ];
+    for (const sel of selectors) {
+      const els = document.querySelectorAll(sel);
+      for (const el of Array.from(els)) {
+        const text = el.textContent?.trim() || '';
+        if (
+          /(?:ago|posted|active|today|just posted|days|\d+d)/i.test(text) &&
+          !text.includes('$') &&
+          text.length < 50
+        ) {
+          return text;
+        }
+      }
+    }
+    return '';
   }
 
   canAutoApply(): boolean {
@@ -323,12 +349,27 @@ export class IndeedAdapter extends JobPlatformAdapter {
       const text = card.textContent?.toLowerCase() || '';
       const isEasyApply = text.includes('easily apply') || text.includes('apply now');
 
+      // Extract card posted date
+      const dateEl = card.querySelector('span.date, span[data-testid="myJobsStateDate"], [class*="date"]');
+      let cardPostedDate = dateEl?.textContent?.trim() || '';
+      if (!cardPostedDate) {
+        const spans = Array.from(card.querySelectorAll('span'));
+        for (const s of spans) {
+          const st = s.textContent?.trim() || '';
+          if (/(?:ago|today|just posted|\d+\+?\s*days?)/i.test(st) && st.length < 35 && !st.includes('$')) {
+            cardPostedDate = st;
+            break;
+          }
+        }
+      }
+
       cards.push({
         index: i,
         id,
         title,
         company,
         isEasyApply,
+        postedDate: cardPostedDate || undefined,
       });
     }
 

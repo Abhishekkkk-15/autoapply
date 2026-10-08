@@ -24,6 +24,7 @@ import {
 } from '@/src/lib/db';
 import { generatePitchAndLetter, generateColdOutreach } from '@/src/lib/ai';
 import { ExtensionMcpBridge } from '@/src/lib/mcp-bridge';
+import { isJobPostedTooOld } from '@/src/lib/extractor';
 
 export default defineBackground(() => {
   console.log('[AutoApply AI] Background service worker initialized.');
@@ -470,6 +471,18 @@ export default defineBackground(() => {
         return;
       }
 
+      // 2.5 Check user preferences (whitelist, blacklist, and 30-day freshness limit)
+      const profile = await getUserProfile();
+      const prefCheck = checkPreferences(job, profile);
+      if (!prefCheck.allow) {
+        await updateState({
+          status: 'IDLE',
+          currentStepMessage: `Skipping: ${prefCheck.reason}`,
+        });
+        await recordLog('info', `Skipping "${job.title}" at ${job.company}: ${prefCheck.reason}`);
+        return;
+      }
+
       // 3. Dispatch apply action to content script
       const result: ApplyStepResult = await chrome.tabs.sendMessage(tabId, {
         type: 'EXECUTE_APPLY_ON_CURRENT_TAB',
@@ -638,7 +651,7 @@ export default defineBackground(() => {
   }
 
   function checkPreferences(job: ScrapedJob, profile: UserProfile): { allow: boolean; reason?: string } {
-    const { blacklistedCompanies, targetRoles } = profile.jobPreferences;
+    const { blacklistedCompanies, targetRoles, maxDaysOld } = profile.jobPreferences;
 
     if (blacklistedCompanies?.length) {
       const compLower = job.company.toLowerCase();
@@ -658,6 +671,18 @@ export default defineBackground(() => {
         return {
           allow: false,
           reason: `Title "${job.title}" does not match target roles filter.`,
+        };
+      }
+    }
+
+    // Check posting date freshness (default max 30 days / 1 month)
+    const limitDays = maxDaysOld ?? 30;
+    if (job.postedDate) {
+      const { tooOld, ageDays } = isJobPostedTooOld(job.postedDate, limitDays);
+      if (tooOld) {
+        return {
+          allow: false,
+          reason: `Job was posted "${job.postedDate}" (~${ageDays} days ago), exceeding the ${limitDays}-day limit.`,
         };
       }
     }
@@ -800,6 +825,21 @@ export default defineBackground(() => {
           }
 
           const card = cardInfo.cards[cardIdx];
+
+          // Early freshness check if card metadata already contains posting date
+          if (card?.postedDate) {
+            const profile = await getUserProfile();
+            const limitDays = profile.jobPreferences?.maxDaysOld ?? 30;
+            const { tooOld, ageDays } = isJobPostedTooOld(card.postedDate, limitDays);
+            if (tooOld) {
+              await recordLog(
+                'info',
+                `[Card ${cardIdx + 1}] Skipping "${card.title || 'Job'}" - posted ${card.postedDate} (~${ageDays} days ago, exceeds ${limitDays}d limit).`
+              );
+              continue;
+            }
+          }
+
           await updateState({
             status: 'RUNNING',
             searchProgress: {

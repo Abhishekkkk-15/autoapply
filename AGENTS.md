@@ -154,3 +154,9 @@ Before completing tasks or committing changes, always run:
 npm run compile   # Runs tsc --noEmit (must pass with 0 errors)
 npm run build     # Builds WXT MV3 bundle and runs encoding sanitizer
 ```
+
+### E. Posting Freshness Cutoff (Max 30 Days / 1 Month)
+- The extension automatically enforces a 30-day posting age cutoff (`maxDaysOld` in `JobPreferences`, default: 30).
+- Search URLs automatically incorporate platform date filters (`f_TPR=r2592000` on LinkedIn, `fromage=30` on Indeed, `days=30` on Naukri).
+- Content script adapters extract `postedDate` from DOM and parse approximate age via `parsePostedAgeInDays` in `src/lib/extractor.ts`.
+- Any job posted a month or older (> 30 days, "1 month ago", "2 months ago", "30+ days ago") is immediately skipped before applying.

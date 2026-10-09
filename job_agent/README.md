@@ -120,14 +120,26 @@ job_agent/
 
 ## Quickstart Guide
 
-### 1. Prerequisites & Environment Setup
+### 1. One-Command Installation
 
-This project requires **[`uv`](https://github.com/astral-sh/uv)** for fast, reliable Python dependency management:
+AutoApply provides automated install scripts that bootstrap `uv`, install all dependencies, download Chromium, create local data directories, and set up `.env` templates:
 
+**Windows (PowerShell)**:
 ```powershell
-# Create virtual environment and install dependencies
-uv sync
+.\install.ps1
 ```
+
+**macOS / Linux / WSL (Bash)**:
+```bash
+./install.sh
+```
+
+> [!TIP]
+> **Manual Installation**: If you prefer running manual commands:
+> ```bash
+> uv sync
+> uv run playwright install chromium
+> ```
 
 ### 2. Configure LLM API Key
 

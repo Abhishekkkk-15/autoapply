@@ -9,6 +9,7 @@
     "build": "wxt build && node scripts/sanitize-encoding.js",
     "sanitize": "node scripts/sanitize-encoding.js",
     "mcp": "tsx mcp-server/index.ts",
+    "cli": "node scripts/call-bridge.js",
     "zip": "wxt zip",
     "compile": "tsc --noEmit"
   },

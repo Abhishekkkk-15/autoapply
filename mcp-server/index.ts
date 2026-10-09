@@ -88,6 +88,16 @@ function callExtension<T = any>(action: string, payload?: any, timeoutMs = 25000
 
 // 1. Setup Local WebSocket Bridge Server
 const httpServer = http.createServer((req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
   if (req.url === '/health' || req.url === '/status') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(
@@ -101,6 +111,43 @@ const httpServer = http.createServer((req, res) => {
     );
     return;
   }
+
+  if (req.method === 'POST' && req.url === '/rpc') {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk));
+    req.on('end', async () => {
+      try {
+        const { action, payload, timeoutMs } = JSON.parse(body || '{}');
+        if (!action) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Missing "action" in request body' }));
+          return;
+        }
+        const data = await callExtension(action, payload, timeoutMs);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, data }));
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && req.url?.startsWith('/rpc/')) {
+    const action = req.url.slice(5);
+    callExtension(action)
+      .then((data) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, data }));
+      })
+      .catch((err: any) => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      });
+    return;
+  }
+
   res.writeHead(404);
   res.end('Not found');
 });

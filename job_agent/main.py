@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 @click.group()
 @click.option('--debug/--no-debug', default=False, help='Enable verbose debug logging')
 def cli(debug: bool) -> None:
-	"""AI Autonomous Job Application Agent powered by browser-use."""
+	"""AutoApply - Autonomous AI Job Application Agent powered by browser-use."""
 	log_level = logging.DEBUG if debug else logging.INFO
 	logging.basicConfig(
 		level=log_level,
@@ -259,7 +259,7 @@ def auth_command(
 		await session.stop()
 		console.print(f'[bold green]✅ Success! Browser session saved to: {agent_config.storage_state_path}[/bold green]')
 		console.print(
-			'[green]You can now run [bold]job-agent auto[/bold] with 100% autonomous operation and zero credentials in .env![/green]'
+			'[green]You can now run [bold]autoapply auto[/bold] with 100% autonomous operation and zero credentials in .env![/green]'
 		)
 
 	asyncio.run(_run_auth())
@@ -320,12 +320,12 @@ def auto_command(
 	elif not storage_file.exists():
 		console.print(
 			'[yellow]Notice: No saved browser session found in storage state. '
-			'Using persistent Chrome profile directory. (Run "job-agent auth" anytime to save session state)[/yellow]'
+			'Using persistent Chrome profile directory. (Run "autoapply auth" anytime to save session state)[/yellow]'
 		)
 
 	console.print(
 		Panel.fit(
-			f'[bold cyan]🤖 Autonomous Job Application Agent[/bold cyan]\n\n'
+			f'[bold cyan]🤖 AutoApply - Autonomous Job Application Agent[/bold cyan]\n\n'
 			f'[yellow]Operating Mode:[/yellow] '
 			f'{"[bold green]FREE MODE (100% Autonomous Autopilot)[/bold green]" if selected_mode == "free" else "[bold yellow]ASK MODE (Human Confirmation Before Submit/Send)[/bold yellow]"}\n'
 			f'[yellow]Submission Mode:[/yellow] {"[dim]DRY RUN (Simulated)[/dim]" if dry_run else "[bold red]LIVE SUBMISSION[/bold red]"}\n'
@@ -385,7 +385,7 @@ def auto_command(
 	console.print()
 	console.print(summary_table)
 	console.print(
-		"\n[bold green]Campaign cycle complete! Run 'job-agent stats' or 'job-agent jobs' to inspect details.[/bold green]"
+		"\n[bold green]Campaign cycle complete! Run 'autoapply stats' or 'autoapply jobs' to inspect details.[/bold green]"
 	)
 
 
@@ -686,7 +686,7 @@ def doctor_command() -> None:
 	"""Diagnose system readiness, Chrome installation, LLM connectivity, resume, and authentication status."""
 	console.print(
 		Panel.fit(
-			'[bold cyan]🩺 Job Agent Environment & Authentication Diagnostics[/bold cyan]\n'
+			'[bold cyan]🩺 AutoApply Environment & Authentication Diagnostics[/bold cyan]\n'
 			'Checking browser environment, LLM connectivity, profiles, and saved sessions...',
 			title='System Doctor',
 			border_style='cyan',
@@ -799,7 +799,7 @@ def doctor_command() -> None:
 			table.add_row('Saved Auth Session', '[bold yellow]WARN[/bold yellow]', f'Invalid JSON in {state_path}: {ex}')
 	else:
 		table.add_row(
-			'Saved Auth Session', '[bold yellow]NOT SAVED[/bold yellow]', 'No saved session yet. Run "job-agent auth" to log in.'
+			'Saved Auth Session', '[bold yellow]NOT SAVED[/bold yellow]', 'No saved session yet. Run "autoapply auth" to log in.'
 		)
 
 	# 5. Database Health
@@ -1055,7 +1055,7 @@ def run_interactive_setup(
 	"""Interactive candidate onboarding wizard."""
 	console.print(
 		Panel.fit(
-			'[bold cyan]🛠️  Job Agent Interactive Profile Setup Wizard[/bold cyan]\n'
+			'[bold cyan]🛠️  AutoApply Interactive Profile Setup Wizard[/bold cyan]\n'
 			'Interactively configure your candidate profile and job preferences.\n'
 			'[dim]All details are saved locally in data/user_profile.json — no personal info needed in .env![/dim]',
 			title='Candidate Setup',
@@ -1280,7 +1280,7 @@ def run_interactive_setup(
 		'[bold green]✓ Done![/bold green] Your details are saved locally. You do NOT need to keep personal information in .env.'
 	)
 	console.print(
-		'Run [bold cyan]uv run job-agent doctor[/bold cyan] to verify system health or [bold cyan]uv run job-agent auto --dry-run[/bold cyan] to test applications.\n'
+		'Run [bold cyan]uv run autoapply doctor[/bold cyan] to verify system health or [bold cyan]uv run autoapply auto --dry-run[/bold cyan] to test applications.\n'
 	)
 
 
@@ -1397,7 +1397,7 @@ def interactive_command(url: str, task: str | None) -> None:
 			f'[yellow]Initial URL:[/yellow] {url}\n'
 			'[green]Features:[/green] Visible headful Chrome, In-Browser Demo Panel, Job Tools enabled.\n'
 			"[cyan]Commands:[/cyan] Type any natural-language instruction, or 'q' to quit.",
-			title='Job Agent Interactive',
+			title='AutoApply Interactive',
 			border_style='cyan',
 		)
 	)

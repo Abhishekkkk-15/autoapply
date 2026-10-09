@@ -1,0 +1,45 @@
+[project]
+name = "autoapply"
+version = "0.1.0"
+description = "Autonomous AI recruitment and job application system powered by browser-use"
+readme = "README.md"
+requires-python = ">=3.11, <3.14"
+authors = [
+    { name = "Abhishek Jangid" }
+]
+license = { text = "MIT" }
+dependencies = [
+    "browser-use>=0.13.11",
+    "click>=8.1.7",
+    "rich>=13.7.1",
+    "pypdf>=5.0.0",
+    "pydantic>=2.7.0",
+    "python-dotenv>=1.0.1",
+    "aiosmtplib>=3.0.1",
+]
+
+[project.scripts]
+autoapply = "job_agent.main:cli"
+job-agent = "job_agent.main:cli"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.5.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["job_agent"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"

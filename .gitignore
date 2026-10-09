@@ -1,11 +1,70 @@
-node_modules/
-.output/
-.wxt/
-dist/
-*.log
-.DS_Store
-.venv/
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.pyc
-.env
+*.py[cod]
+*$py.class
 
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Testing & Linting
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Secrets & Environment Configurations
+.env
+.env.*
+!.env.example
+!job_agent/.env.example
+
+# Local SQLite databases & tracking state
+*.db
+*.sqlite
+*.sqlite3
+job_agent/data/*.db
+job_agent/data/*.sqlite
+job_agent/data/*.sqlite3
+
+# Candidate Profiles, Exports & Local Data
+job_agent/data/*.json
+job_agent/data/*.csv
+*.csv
+
+# Logs & Browser Session Caches
+*.log
+cookies.json
+browser_cookies.json

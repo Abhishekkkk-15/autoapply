@@ -51,18 +51,19 @@ Thumbs.db
 !.env.example
 !job_agent/.env.example
 
-# Local SQLite databases & tracking state
+# Local User Data Directory & Candidate Privacy (NEVER COMMITTED)
+job_agent/data/
+job_agent/resume/
+data/
 *.db
 *.sqlite
 *.sqlite3
-job_agent/data/*.db
-job_agent/data/*.sqlite
-job_agent/data/*.sqlite3
-
-# Candidate Profiles, Exports & Local Data
-job_agent/data/*.json
-job_agent/data/*.csv
 *.csv
+
+# Personal Documents & Resumes (Strict Privacy Protection)
+*.pdf
+*resume*.pdf
+*resume*.txt
 
 # Logs & Browser Session Caches
 *.log

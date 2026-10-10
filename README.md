@@ -98,6 +98,11 @@ job_agent/
 │   ├── browser_email_agent.py  # Stealth browser webmail (Gmail) dispatcher
 │   └── email_agent.py          # SMTP cold outreach dispatcher
 ├── services/
+│   ├── fast_search/            # Zero-token rapid unauthenticated API discovery
+│   │   ├── linkedin_guest.py   # LinkedIn public guest endpoint scraper
+│   │   ├── freehire_client.py  # Open ATS aggregator client (Greenhouse, Lever, Ashby, Workday)
+│   │   ├── manager.py          # Fast search coordinator & qualification pipeline
+│   │   └── models.py           # DiscoveredJob schemas & DB converters
 │   ├── resume_parser.py        # PDF/text parser & work date experience calculator
 │   └── fit_scorer.py           # Seniority and experience hard disqualification gates
 ├── platforms/
@@ -299,7 +304,7 @@ uv run autoapply export --output applications.csv
 | `doctor` | System diagnostics (Chrome, LLM latency, Resume, DB, Auth) | `uv run autoapply doctor` |
 | `auth` | Log into job boards and webmail in persistent Chrome profile | `uv run autoapply auth --platform wellfound --manual` |
 | `auto` | Autonomous end-to-end recruitment pipeline | `uv run autoapply auto --mode ask --dry-run` |
-| `search` | Phase 1: Search designated job boards and catalog vacancies | `uv run autoapply search --platforms linkedin,wellfound` |
+| `search` | Phase 1: Rapid API discovery or browser job board search | `uv run autoapply search --roles "AI Engineer" --platforms linkedin,ats` |
 | `extract` | Phase 2: Hunt for HR/recruiter emails and LinkedIn contacts | `uv run autoapply extract --limit 10` |
 | `apply` | Phase 3: Autofill application forms for pending jobs | `uv run autoapply apply --dry-run --limit 5` |
 | `email` | Phase 4: Dispatch cold emails (via browser webmail or SMTP) | `uv run autoapply email --browser-email` |
@@ -319,6 +324,7 @@ uv run autoapply export --output applications.csv
 ## Safety, Anti-Detection & Privacy
 
 * **Zero Sensitive Data Leaks**: Your personal candidate information is stored in `job_agent/data/user_profile.json` (gitignored). Credentials in `.env` are never passed to LLMs.
+* **Strict Resume & Document Privacy**: All candidate resumes (`resume.pdf`, `resume.txt`) and SQLite tracking databases reside exclusively in local gitignored directories (`job_agent/data/`). Personal career materials are never tracked or committed to Git repositories.
 * **Persistent Chrome Profile**: Reuses cookies and authenticated browser sessions rather than repeatedly logging in via headless browsers.
 * **Human-Paced Interaction**: Random delays (8–18s) are injected between actions and job applications to protect accounts from platform rate limits.
 * **Safe Defaults**: All application and auto commands operate in `--dry-run` mode by default until explicitly configured.

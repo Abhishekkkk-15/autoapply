@@ -474,27 +474,89 @@ def run_command(
 
 
 @cli.command(name='search')
-@click.option('--platforms', default='linkedin,wellfound,naukri', help='Platforms to search (comma-separated)')
-@click.option('--roles', default='AI Engineer', help='Role keywords')
+@click.option('--platforms', default='linkedin,ats', help='Platforms to search (linkedin, ats, or comma-separated)')
+@click.option('--roles', default='AI Engineer, Software Engineer', help='Role keywords (comma-separated)')
 @click.option('--location', default='Remote', help='Target location')
-def search_command(platforms: str, roles: str, location: str) -> None:
+@click.option('--limit', default=15, type=int, help='Max jobs to discover per role query')
+@click.option('--min-fit', default=35.0, type=float, help='Minimum fit score threshold percentage (0-100)')
+@click.option('--fast/--browser', default=True, help='Use instant unauthenticated API search (default) or browser automation')
+def search_command(platforms: str, roles: str, location: str, limit: int, min_fit: float, fast: bool) -> None:
 	"""Phase 1: Search designated job boards and catalog vacancies into database."""
-	console.print(f'[bold cyan]Searching {platforms.upper()} for "{roles}" in "{location}"...[/bold cyan]')
 	user_profile = UserProfile.from_env_or_defaults()
 	platform_list = [p.strip().lower() for p in platforms.split(',') if p.strip()]
+	target_roles = [r.strip() for r in roles.split(',') if r.strip()]
+	target_locations = [loc.strip() for loc in location.split(',') if loc.strip()]
 
 	preferences = JobPreferences(
-		target_roles=[r.strip() for r in roles.split(',') if r.strip()],
-		target_locations=[location.strip()],
+		target_roles=target_roles,
+		target_locations=target_locations,
 		platforms=platform_list,  # type: ignore
+		min_fit_score=min_fit,
 	)
 
 	orchestrator = JobAgentOrchestrator(
 		user_profile=user_profile,
 		preferences=preferences,
 	)
-	results = asyncio.run(orchestrator.run_search_only())
-	console.print(f'[bold green]Search completed successfully:[/bold green] {results}')
+
+	if fast:
+		console.print(
+			Panel.fit(
+				f'[bold cyan]⚡ Fast-Path Ingestion Engine (0 Tokens, Unauthenticated APIs)[/bold cyan]\n'
+				f'[yellow]Target Roles:[/yellow] {", ".join(target_roles)}\n'
+				f'[yellow]Location:[/yellow] {", ".join(target_locations)}\n'
+				f'[yellow]Min Fit Score:[/yellow] {min_fit}%\n'
+				f'[yellow]Candidate Experience:[/yellow] {user_profile.years_of_experience:.1f} years\n'
+				f'[dim]Queries LinkedIn Guest APIs and tech ATS aggregators with hard qualification gating.[/dim]',
+				title='Fast Discovery Engine',
+				border_style='cyan',
+			)
+		)
+
+		fast_results = orchestrator.search_agent.run_fast_search(
+			roles=target_roles,
+			locations=target_locations,
+			platforms=platform_list,
+			limit_per_query=limit,
+			min_fit_score=min_fit,
+		)
+
+		jobs = fast_results.get('jobs', [])
+		total_scraped = fast_results.get('total_scraped', 0)
+		saved_count = fast_results.get('saved_count', 0)
+
+		table = Table(title='Qualified Vacancies Discovered', border_style='cyan', box=box.ROUNDED)
+		table.add_column('#', style='dim', width=4)
+		table.add_column('Title', style='bold white', width=34)
+		table.add_column('Company', style='cyan', width=22)
+		table.add_column('Location', style='yellow', width=18)
+		table.add_column('Fit Score', width=12)
+		table.add_column('Qualification Reason', style='dim')
+
+		for idx, j in enumerate(jobs[:25], 1):
+			score_str = (
+				f'[bold green]{j.match_score:.1f}%[/bold green]'
+				if j.match_score >= 60
+				else (
+					f'[bold yellow]{j.match_score:.1f}%[/bold yellow]'
+					if j.match_score >= 40
+					else f'[bold red]{j.match_score:.1f}%[/bold red]'
+				)
+			)
+			table.add_row(str(idx), j.job_title[:32], j.company_name[:20], j.location[:16], score_str, j.notes or 'Passes requirements')
+
+		console.print()
+		console.print(table)
+		console.print(
+			f'\n[bold green]✓ Fast search complete![/bold green] Scraped {total_scraped} raw vacancies, '
+			f'qualified and saved [bold cyan]{saved_count}[/bold cyan] jobs to SQLite tracker in seconds (0 LLM tokens burned).\n'
+			f'Run [bold cyan]uv run autoapply apply --dry-run[/bold cyan] to test form autofill, or '
+			f'[bold cyan]uv run autoapply auto[/bold cyan] to run the autonomous pipeline.'
+		)
+	else:
+		console.print(f'[bold cyan]Launching browser-use session for {platforms.upper()} search...[/bold cyan]')
+		results = asyncio.run(orchestrator.run_search_only(use_fast_search=False))
+		console.print(f'[bold green]Browser search completed successfully:[/bold green] {results}')
 
 
 @cli.command(name='apply')

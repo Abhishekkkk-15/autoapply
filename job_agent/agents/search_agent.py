@@ -10,13 +10,14 @@ from browser_use.llm.base import BaseChatModel
 from job_agent.config import AgentConfig, JobPreferences, UserProfile
 from job_agent.database import JobTracker
 from job_agent.platforms import get_platform_adapter
+from job_agent.services.fast_search import FastSearchManager
 from job_agent.tools.job_tools import create_job_tools
 
 logger = logging.getLogger(__name__)
 
 
 class SearchAgent:
-	"""Autonomous browser agent that searches job boards and catalogs matching vacancies."""
+	"""Autonomous job search agent combining fast unauthenticated API ingestion with browser fallbacks."""
 
 	def __init__(
 		self,
@@ -34,6 +35,7 @@ class SearchAgent:
 		self.llm = llm
 		self.browser_session = browser_session
 		self.tools = create_job_tools(self.tracker, self.user_profile, self.preferences)
+		self.fast_search_manager = FastSearchManager(tracker=self.tracker)
 
 	def _build_sensitive_data(self) -> dict[str, dict[str, str]]:
 		"""Build domain-specific credentials map for stealth authentication without LLM exposure."""
@@ -116,15 +118,51 @@ CRITICAL SEARCH & COMPLETION RULES:
 
 		return self.tracker.get_pending_jobs(platform=platform, limit=self.preferences.max_searches_per_platform)
 
-	async def run_all(self) -> dict[str, int]:
-		"""Run search sequentially across all configured platforms."""
+	def run_fast_search(
+		self,
+		roles: list[str] | None = None,
+		locations: list[str] | None = None,
+		platforms: list[str] | None = None,
+		limit_per_query: int = 15,
+		min_fit_score: float | None = None,
+	) -> dict[str, Any]:
+		"""Execute instant, unauthenticated API search across LinkedIn and open ATS aggregators."""
+		return self.fast_search_manager.execute_fast_search(
+			user_profile=self.user_profile,
+			preferences=self.preferences,
+			roles=roles,
+			locations=locations,
+			platforms=platforms,
+			limit_per_query=limit_per_query,
+			min_fit_score=min_fit_score,
+		)
+
+	async def run_all(self, use_fast_search: bool = True) -> dict[str, int]:
+		"""Run search across configured platforms using hybrid fast-path and browser fallbacks."""
 		results: dict[str, int] = {}
-		for platform in self.preferences.platforms:
+		remaining_platforms = list(self.preferences.platforms)
+
+		if use_fast_search:
+			logger.info('⚡ Using Fast-Search engine for rapid unauthenticated discovery...')
+			fast_res = self.run_fast_search(
+				roles=self.preferences.target_roles,
+				locations=self.preferences.target_locations,
+				platforms=self.preferences.platforms,
+				limit_per_query=self.preferences.max_searches_per_platform,
+				min_fit_score=self.preferences.min_fit_score,
+			)
+			results['fast_search_saved'] = fast_res.get('saved_count', 0)
+			# Fast search handles linkedin and ats aggregators; remove them from browser fallback queue
+			remaining_platforms = [p for p in remaining_platforms if p not in ('linkedin', 'ats', 'freehire')]
+
+		# Execute browser automation for login-gated portals (e.g. Wellfound, Naukri)
+		for platform in remaining_platforms:
 			try:
 				jobs = await self.search_platform(platform)
 				results[platform] = len(jobs)
-				await asyncio.sleep(5)  # Human-like cooldown between platforms
+				await asyncio.sleep(3)  # Cooldown between platforms
 			except Exception as e:
 				logger.error(f'Error during {platform} search: {e}', exc_info=True)
 				results[platform] = 0
+
 		return results

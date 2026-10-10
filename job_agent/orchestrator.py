@@ -149,7 +149,7 @@ class JobAgentOrchestrator:
 		try:
 			# Phase 1: Search across platforms
 			logger.info('\n--- PHASE 1: DISCOVERY & SEARCH ---')
-			search_counts = await self.search_agent.run_all()
+			search_counts = await self.search_agent.run_all(use_fast_search=True)
 
 			# Phase 2: Recruiter intelligence extraction
 			logger.info('\n--- PHASE 2: RECRUITER INTELLIGENCE EXTRACTION ---')
@@ -217,9 +217,9 @@ class JobAgentOrchestrator:
 
 		return await self.run_full_pipeline()
 
-	async def run_search_only(self) -> dict[str, int]:
+	async def run_search_only(self, use_fast_search: bool = True) -> dict[str, int]:
 		"""Execute only Phase 1: Search and catalog."""
-		return await self.search_agent.run_all()
+		return await self.search_agent.run_all(use_fast_search=use_fast_search)
 
 	async def run_apply_only(self, limit: int | None = None) -> int:
 		"""Execute only Phase 3: Apply to already discovered pending jobs."""

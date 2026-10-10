@@ -19,7 +19,7 @@ flowchart TD
     end
 
     subgraph "Specialized Sub-Agents"
-        ORCH --> SA["Search Agent\n(Discovers vacancies with seniority URL filters)"]
+        ORCH --> SA["Search Engine\n(Fast-Path Guest APIs + ATS aggregators + browser fallback)"]
         ORCH --> EA["Extractor Agent\n(Hunts recruiter profiles & contact emails)"]
         ORCH --> AA["Application Agent\n(Fills multi-step forms & attaches resume)"]
         ORCH --> OA["Webmail / Email Agent\n(Sends outreach directly via browser Gmail or SMTP)"]
@@ -58,19 +58,24 @@ flowchart TD
    - **Free Mode (`--mode free`)**: Full autopilot mode that discovers, matches, and applies without human interruption.
    - **Dry-Run Preview (`--dry-run`)**: Fills out every form field and verifies accuracy on-screen, stopping right before the final submission button.
 
-4. **Persistent Browser Sessions (Zero Password Friction)**:
+4. **Lightning-Fast Zero-Token Discovery Engine (`autoapply search`)**:
+   - **Zero-Token Fast Path (Default)**: Leverages LinkedIn's public unauthenticated `jobs-guest` API and open ATS aggregators (Greenhouse, Lever, Ashby, Workday). Discovers 50+ vacancies in ~2 seconds without launching Chromium, burning zero LLM tokens, and completely eliminating account flagging risk.
+   - **Automated Hard Gate Filter**: Automatically applies junior/seniority hard qualification gates and filters low-scoring roles before storing records in SQLite.
+   - **Browser Automation Fallback (`--browser`)**: Seamlessly launches headful/headless Chrome for platforms that require active login (e.g., Wellfound or Naukri).
+
+5. **Persistent Browser Sessions (Zero Password Friction)**:
    - Uses your real Chrome profile (`CHROME_USER_DATA_DIR`).
    - Log into LinkedIn, Wellfound, or Gmail once using `autoapply auth` or your local browser.
    - Bypasses 2FA, Captchas, and Cloudflare challenges permanently.
    - Platform credentials do NOT need to be exposed to language models or `.env`.
 
-5. **Stealth Browser Webmail Outreach**:
+6. **Stealth Browser Webmail Outreach**:
    - Sends tailored recruiter cold emails directly via webmail in Chrome (`mail.google.com`), avoiding the need for third-party SMTP servers or app passwords.
 
-6. **System Diagnostic Doctor (`autoapply doctor`)**:
+7. **System Diagnostic Doctor (`autoapply doctor`)**:
    - Performs automated health checks verifying Google Chrome installation, active profile lock status, LLM connection latency, resume existence, database health, and active authentication state.
 
-7. **Database Hygiene & Cleanup**:
+8. **Database Hygiene & Cleanup**:
    - SQLite tracking database stores all discoveries, applications, recruiters, and interviews.
    - Filter and purge low-scoring jobs with `autoapply clean --min-fit 50.0`.
    - Start completely fresh anytime with `autoapply reset-db`.
@@ -229,8 +234,11 @@ uv run autoapply auto --platforms wellfound,linkedin --years-exp 0.7 --dry-run
 You can run individual phases independently as needed:
 
 ```powershell
-# Phase 1: Search only
-uv run autoapply search --platforms wellfound --roles "Full Stack Developer, AI Engineer"
+# Phase 1: Rapid API discovery (default: unauthenticated, 0 LLM tokens, ~2 seconds)
+uv run autoapply search --platforms linkedin,ats --roles "AI Engineer, Software Engineer" --limit 15
+
+# Phase 1 (Alternative): Browser-automation search for login-gated portals
+uv run autoapply search --platforms wellfound,naukri --browser
 
 # Phase 2: Extract recruiter & HR contacts for discovered jobs
 uv run autoapply extract --limit 5

@@ -345,6 +345,33 @@ uv run autoapply export --output applications.csv
 
 ---
 
+## AI Coding Agent Skill (`autoapply`)
+
+AutoApply includes a pre-packaged **Agent Skill** (`SKILL.md`) for AI coding agents (**Google Antigravity**, **Claude Code**, **Cursor**, **Windsurf**, **Aider**).
+
+When this skill is active, you can simply ask your coding agent natural-language requests like:
+- *"Search for AI Engineer jobs matching my profile with a minimum fit score of 60%"*
+- *"Fill application forms for the top 3 discovered jobs in safe dry-run mode"*
+- *"Run doctor diagnostics to check if my browser and LLM are ready"*
+- *"Extract recruiter contacts for discovered companies and draft pitches"*
+- *"Log an interview for job #2 with Acme scheduled for tomorrow"*
+
+### Using the Skill
+
+- **In this repository**: Automatically discovered by Antigravity and agentic CLI tools from [`.agents/skills/autoapply/SKILL.md`](file:///mnt/dev/projects/autoapply/.agents/skills/autoapply/SKILL.md).
+- **Global Install (Antigravity / Gemini CLI)**:
+  ```bash
+  mkdir -p ~/.gemini/config/skills/autoapply
+  cp -r .agents/skills/autoapply/* ~/.gemini/config/skills/autoapply/
+  ```
+- **Claude Code & Other Assistants**:
+  ```bash
+  mkdir -p .claude/skills/autoapply
+  cp -r skills/autoapply/* .claude/skills/autoapply/
+  ```
+
+---
+
 ## Safety, Anti-Detection & Privacy
 
 * **Zero Sensitive Data Leaks**: Your personal candidate information is stored in `job_agent/data/user_profile.json` (gitignored). Credentials in `.env` are never passed to LLMs.
@@ -352,3 +379,4 @@ uv run autoapply export --output applications.csv
 * **Persistent Chrome Profile**: Reuses cookies and authenticated browser sessions rather than repeatedly logging in via headless browsers.
 * **Human-Paced Interaction**: Random delays (8–18s) are injected between actions and job applications to protect accounts from platform rate limits.
 * **Safe Defaults**: All application and auto commands operate in `--dry-run` mode by default until explicitly configured.
+

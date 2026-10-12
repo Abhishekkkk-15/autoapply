@@ -132,21 +132,45 @@ job_agent/
 
 ### 1. One-Command Installation
 
-AutoApply provides automated install scripts that bootstrap `uv`, install all dependencies, download Chromium, create local data directories, and set up `.env` templates:
+AutoApply provides automated one-line installation scripts that clone the repository, bootstrap `uv`, install all dependencies, download Chromium, create local data directories, and set up `.env` templates in a single step:
+
+#### Direct Web Install (Zero Setup Needed)
+
+**macOS / Linux / WSL (Bash)**:
+```bash
+curl -fsSL https://raw.githubusercontent.com/Abhishekkkk-15/autoapply/main/install.sh | bash
+```
+*(Or via `wget`: `wget -qO- https://raw.githubusercontent.com/Abhishekkkk-15/autoapply/main/install.sh | bash`)*
+
+**Windows (PowerShell)**:
+```powershell
+irm https://raw.githubusercontent.com/Abhishekkkk-15/autoapply/main/install.ps1 | iex
+```
+
+After installation finishes, enter the directory:
+```bash
+cd autoapply
+```
+
+---
+
+#### Local Install (If Already Cloned)
+
+**macOS / Linux / WSL**:
+```bash
+./install.sh
+```
 
 **Windows (PowerShell)**:
 ```powershell
 .\install.ps1
 ```
 
-**macOS / Linux / WSL (Bash)**:
-```bash
-./install.sh
-```
-
 > [!TIP]
 > **Manual Installation**: If you prefer running manual commands:
 > ```bash
+> git clone https://github.com/Abhishekkkk-15/autoapply.git
+> cd autoapply
 > uv sync
 > uv run playwright install chromium
 > ```

@@ -18,17 +18,47 @@ $ErrorActionPreference = "Stop"
 # Enable UTF-8 encoding
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
+$RepoUrl = "https://github.com/Abhishekkkk-15/autoapply.git"
+$ZipUrl = "https://github.com/Abhishekkkk-15/autoapply/archive/refs/heads/main.zip"
+$ClonedNew = $false
+
+function Test-CommandExists($cmd) {
+    return [bool](Get-Command $cmd -ErrorAction SilentlyContinue)
+}
+
 $ScriptDir = $PSScriptRoot
 if (-not $ScriptDir) {
     $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 }
-if ($ScriptDir) {
-    Set-Location $ScriptDir
-}
 
-if (-not (Test-Path "pyproject.toml") -or -not (Test-Path "job_agent")) {
-    Write-Host "[ERROR] Please run this script from the root of the autoapply repository." -ForegroundColor Red
-    exit 1
+if ((Test-Path "pyproject.toml") -and (Test-Path "job_agent")) {
+    $ProjectDir = (Get-Location).Path
+} elseif ($ScriptDir -and (Test-Path (Join-Path $ScriptDir "pyproject.toml"))) {
+    $ProjectDir = $ScriptDir
+    Set-Location $ProjectDir
+} else {
+    Write-Host "`n[0/5] Setting up AutoApply repository..." -ForegroundColor Yellow
+    $TargetDir = "autoapply"
+    if ((Test-Path $TargetDir) -and (Test-Path (Join-Path $TargetDir "pyproject.toml"))) {
+        Write-Host "  Found existing '$TargetDir' directory. Using it..." -ForegroundColor Green
+        Set-Location $TargetDir
+    } else {
+        Write-Host "  Fetching repository into './$TargetDir'..." -ForegroundColor Cyan
+        if (Test-CommandExists "git") {
+            Write-Host "  Cloning from $RepoUrl..." -ForegroundColor Cyan
+            git clone $RepoUrl $TargetDir
+        } else {
+            Write-Host "  git not found. Downloading archive via web..." -ForegroundColor Cyan
+            $tempZip = Join-Path $env:TEMP "autoapply-main.zip"
+            Invoke-WebRequest -Uri $ZipUrl -OutFile $tempZip
+            Expand-Archive -Path $tempZip -DestinationPath $env:TEMP -Force
+            Move-Item (Join-Path $env:TEMP "autoapply-main") $TargetDir
+            Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
+        }
+        Set-Location $TargetDir
+        $ClonedNew = $true
+    }
+    $ProjectDir = (Get-Location).Path
 }
 
 Write-Host @"
@@ -42,10 +72,6 @@ Write-Host @"
       Autonomous AI Job Application Agent Setup
 ========================================================================
 "@ -ForegroundColor Cyan
-
-function Test-CommandExists($cmd) {
-    return [bool](Get-Command $cmd -ErrorAction SilentlyContinue)
-}
 
 # 1. Check or install uv
 Write-Host "`n[1/5] Checking package manager (uv)..." -ForegroundColor Yellow
@@ -109,16 +135,18 @@ if ($SkipPlaywright) {
 
 # 4. Prepare local directories and config
 Write-Host "`n[4/5] Setting up local directories and environment..." -ForegroundColor Yellow
-$dataDir = Join-Path $ScriptDir "job_agent\data"
+$dataDir = Join-Path $ProjectDir "job_agent\data"
 if (-not (Test-Path $dataDir)) {
     New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
     Write-Host "  [OK] Created local data directory: $dataDir" -ForegroundColor Green
 } else {
-    Write-Host "  [OK] Data directory exists: $dataDir" -ForegroundColor Green
+    Write-Host "  [OK] Data directory ready: $dataDir" -ForegroundColor Green
 }
 
-$envFile = Join-Path $ScriptDir "job_agent\.env"
-$envExample = Join-Path $ScriptDir "job_agent\.env.example"
+$envFile = Join-Path $ProjectDir "job_agent\.env"
+$envExample = Join-Path $ProjectDir "job_agent\.env.example"
+$rootEnv = Join-Path $ProjectDir ".env"
+
 if (-not (Test-Path $envFile)) {
     if (Test-Path $envExample) {
         Copy-Item $envExample $envFile
@@ -126,6 +154,13 @@ if (-not (Test-Path $envFile)) {
     }
 } else {
     Write-Host "  [OK] 'job_agent\.env' already present." -ForegroundColor Green
+}
+
+if (-not (Test-Path $rootEnv)) {
+    if (Test-Path $envExample) {
+        Copy-Item $envExample $rootEnv
+        Write-Host "  [OK] Created root '.env' from template." -ForegroundColor Green
+    }
 }
 
 # 5. Verify CLI executable
@@ -144,8 +179,17 @@ Write-Host @"
 ========================================================================
 
 Next Steps:
+"@ -ForegroundColor Green
+
+if ($ClonedNew) {
+    Write-Host "  👉 First, enter the project directory:" -ForegroundColor Cyan
+    Write-Host "     cd autoapply" -ForegroundColor Cyan
+    Write-Host ""
+}
+
+Write-Host @"
   1. Add your AI API key:
-     Edit 'job_agent\.env' and provide your BROWSER_USE_API_KEY or OPENAI_API_KEY.
+     Edit 'job_agent\.env' (or '.env') and provide your BROWSER_USE_API_KEY or OPENAI_API_KEY.
 
   2. Add your resume:
      Place your resume at 'job_agent\data\resume.pdf' or 'job_agent\data\resume.txt'.
@@ -161,3 +205,4 @@ Next Steps:
 
 ========================================================================
 "@ -ForegroundColor Green
+

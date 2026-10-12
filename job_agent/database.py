@@ -287,6 +287,27 @@ class JobTracker:
 			)
 			return cursor.lastrowid or 0
 
+	def record_cold_email(
+		self,
+		job_id: int,
+		recipient_email: str,
+		subject: str,
+		body_text: str,
+		recipient_name: str | None = None,
+		status: str = 'sent',
+		error_message: str | None = None,
+	) -> int:
+		"""Record a browser-native cold email dispatch."""
+		final_status = f'error: {error_message[:100]}' if error_message else status
+		return self.log_cold_email(
+			job_id=job_id,
+			to_email=recipient_email,
+			subject=subject,
+			body=body_text,
+			to_name=recipient_name,
+			status=final_status,
+		)
+
 	def record_interview(
 		self,
 		job_id: int,

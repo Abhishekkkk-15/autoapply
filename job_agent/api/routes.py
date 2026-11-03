@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from job_agent.api.state import runner_state
@@ -27,6 +27,7 @@ class SearchRequest(BaseModel):
 	limit: int = 15
 	min_fit_score: float = 40.0
 	easy_apply_only: bool = False
+	time_posted_days: int | None = 14
 
 
 class StatusUpdateRequest(BaseModel):
@@ -69,17 +70,41 @@ def get_stats() -> dict[str, Any]:
 
 @router.get("/jobs")
 def get_jobs(
+	response: Response,
 	status: str | None = None,
 	platform: str | None = None,
+	search: str | None = None,
 	limit: int = 50,
+	offset: int = 0,
 ) -> list[dict[str, Any]]:
-	"""Retrieve discovered jobs with optional status and platform filtering."""
-	if status == "found":
-		return tracker.get_pending_jobs(platform=platform, limit=limit)
-	all_jobs = tracker.get_all_jobs(platform=platform, limit=limit)
-	if status:
-		return [j for j in all_jobs if j.get("status") == status]
-	return all_jobs
+	"""Retrieve discovered jobs with optional status, platform, search, and pagination."""
+	total = tracker.count_jobs(platform=platform, status=status, search=search)
+	response.headers["X-Total-Count"] = str(total)
+	response.headers["X-Limit"] = str(limit)
+	response.headers["X-Offset"] = str(offset)
+	return tracker.get_all_jobs(platform=platform, status=status, search=search, limit=limit, offset=offset)
+
+
+@router.get("/jobs/paged")
+def get_jobs_paged(
+	status: str | None = None,
+	platform: str | None = None,
+	search: str | None = None,
+	page: int = 1,
+	page_size: int = 25,
+) -> dict[str, Any]:
+	"""Retrieve paginated jobs with total counts, total pages, and pagination metadata."""
+	offset = max(0, (page - 1) * page_size)
+	total = tracker.count_jobs(platform=platform, status=status, search=search)
+	items = tracker.get_all_jobs(platform=platform, status=status, search=search, limit=page_size, offset=offset)
+	total_pages = max(1, (total + page_size - 1) // page_size) if total > 0 else 1
+	return {
+		"items": items,
+		"total": total,
+		"page": page,
+		"page_size": page_size,
+		"total_pages": total_pages,
+	}
 
 
 @router.get("/jobs/{job_id}")
@@ -146,6 +171,7 @@ def run_search(payload: SearchRequest) -> dict[str, Any]:
 		limit_per_query=payload.limit,
 		min_fit_score=payload.min_fit_score,
 		easy_apply_only=payload.easy_apply_only,
+		time_posted_days=payload.time_posted_days,
 	)
 	runner_state.log(f"Discovery complete: {result.get('total_scraped')} scraped, {result.get('saved_count')} qualified and saved.")
 	return result

@@ -78,6 +78,24 @@ def test_get_jobs_and_filter(client: TestClient):
 	assert len(response_applied.json()) == 0
 
 
+def test_get_jobs_paged(client: TestClient):
+	response = client.get("/api/jobs/paged?page=1&page_size=1")
+	assert response.status_code == 200
+	data = response.json()
+	assert data["total"] == 2
+	assert data["page"] == 1
+	assert data["page_size"] == 1
+	assert data["total_pages"] == 2
+	assert len(data["items"]) == 1
+
+	# Test search filter
+	res_search = client.get("/api/jobs/paged?search=DeepMind")
+	assert res_search.status_code == 200
+	data_search = res_search.json()
+	assert data_search["total"] == 1
+	assert data_search["items"][0]["company_name"] == "DeepMind"
+
+
 def test_job_detail_and_status_update(client: TestClient):
 	jobs = client.get("/api/jobs").json()
 	job_id = jobs[0]["id"]

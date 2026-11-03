@@ -518,9 +518,19 @@ def run_command(
 @click.option('--location', default='Remote', help='Target location')
 @click.option('--limit', default=15, type=int, help='Max jobs to discover per role query')
 @click.option('--min-fit', default=35.0, type=float, help='Minimum fit score threshold percentage (0-100)')
+@click.option('--posted-within', '--days', 'time_posted_days', default=14, type=int, help='Only discover jobs posted within N days (e.g. 1, 7, 14, 30)')
 @click.option('--easy-apply-only', is_flag=True, default=False, help='Only discover jobs with 1-click Easy Apply')
 @click.option('--fast/--browser', default=True, help='Use instant unauthenticated API search (default) or browser automation')
-def search_command(platforms: str, roles: str, location: str, limit: int, min_fit: float, easy_apply_only: bool, fast: bool) -> None:
+def search_command(
+	platforms: str,
+	roles: str,
+	location: str,
+	limit: int,
+	min_fit: float,
+	time_posted_days: int,
+	easy_apply_only: bool,
+	fast: bool,
+) -> None:
 	"""Phase 1: Search designated job boards and catalog vacancies into database."""
 	user_profile = UserProfile.from_env_or_defaults()
 	platform_list = [p.strip().lower() for p in platforms.split(',') if p.strip()]
@@ -547,6 +557,7 @@ def search_command(platforms: str, roles: str, location: str, limit: int, min_fi
 				f'[yellow]Platforms:[/yellow] {", ".join(platform_list)}\n'
 				f'[yellow]Easy Apply Only:[/yellow] {"Yes" if easy_apply_only else "No (Includes ATS & Direct)"}\n'
 				f'[yellow]Min Fit Score:[/yellow] {min_fit}%\n'
+				f'[yellow]Posted Within:[/yellow] Last {time_posted_days} days\n'
 				f'[yellow]Candidate Experience:[/yellow] {user_profile.years_of_experience:.1f} years\n'
 				f'[dim]Concurrently queries LinkedIn Guest, RemoteOK, WeWorkRemotely, and ATS aggregators.[/dim]',
 				title='Fast Discovery Engine',
@@ -561,6 +572,7 @@ def search_command(platforms: str, roles: str, location: str, limit: int, min_fi
 			limit_per_query=limit,
 			min_fit_score=min_fit,
 			easy_apply_only=easy_apply_only,
+			time_posted_days=time_posted_days,
 		)
 
 		jobs = fast_results.get('jobs', [])

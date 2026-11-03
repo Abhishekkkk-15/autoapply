@@ -126,6 +126,7 @@ CRITICAL SEARCH & COMPLETION RULES:
 		limit_per_query: int = 15,
 		min_fit_score: float | None = None,
 		easy_apply_only: bool = False,
+		time_posted_days: int | None = 14,
 	) -> dict[str, Any]:
 		"""Execute instant, unauthenticated API search across LinkedIn, RemoteOK, WWR, and ATS aggregators."""
 		return self.fast_search_manager.execute_fast_search(
@@ -137,6 +138,7 @@ CRITICAL SEARCH & COMPLETION RULES:
 			limit_per_query=limit_per_query,
 			min_fit_score=min_fit_score,
 			easy_apply_only=easy_apply_only,
+			time_posted_days=time_posted_days,
 		)
 
 	async def run_all(self, use_fast_search: bool = True) -> dict[str, int]:

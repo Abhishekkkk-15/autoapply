@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from job_agent.config import JobPreferences, UserProfile
@@ -116,12 +119,7 @@ def test_freehire_client_parsing():
 	with patch("urllib.request.urlopen") as mock_urlopen:
 		mock_resp = MagicMock()
 		mock_resp.status = 200
-		mock_resp.read.return_value = bytes(
-			"""
-			{"data": [{"external_id": "gh-999", "title": "Backend Engineer", "company": "Vercel", "url": "https://boards.greenhouse.io/vercel/jobs/999", "location": "Remote", "description": "FastAPI infrastructure", "skills": ["python", "fastapi"]}]}
-			""",
-			"utf-8"
-		)
+		mock_resp.read.return_value = json.dumps(mock_data).encode("utf-8")
 		mock_urlopen.return_value.__enter__.return_value = mock_resp
 
 		jobs = client.search(query="Backend Engineer", limit=5)
@@ -340,4 +338,57 @@ def test_fast_search_manager_cross_platform_deduplication(tmp_path):
 	# Cross-platform duplicate should be collapsed into a single job
 	assert result["total_scraped"] == 1
 	assert result["saved_count"] == 1
+
+
+def test_fast_search_time_posted_filter(tmp_path: Path):
+	tracker = JobTracker(tmp_path / "test_recency.db")
+	mock_li = MagicMock(spec=LinkedInGuestScraper)
+	mock_ats = MagicMock(spec=FreehireClient)
+	mock_ats.search.return_value = []
+	mock_wwr = MagicMock(spec=WeWorkRemotelyProvider)
+	mock_wwr.search.return_value = []
+
+	now = datetime.now(UTC)
+	recent_date = (now - timedelta(days=2)).isoformat()
+	old_date = (now - timedelta(days=20)).isoformat()
+
+	mock_rok = MagicMock(spec=RemoteOKProvider)
+	mock_rok.search.return_value = [
+		DiscoveredJob(
+			job_id="recent-1",
+			job_title="Software Engineer",
+			company_name="Acme",
+			job_url="https://example.com/recent-1",
+			platform="remoteok",
+			posted_at=recent_date,
+			match_score=80.0,
+		),
+		DiscoveredJob(
+			job_id="old-1",
+			job_title="Software Engineer",
+			company_name="Legacy Corp",
+			job_url="https://example.com/old-1",
+			platform="remoteok",
+			posted_at=old_date,
+			match_score=80.0,
+		),
+	]
+
+	manager = FastSearchManager(
+		tracker=tracker,
+		linkedin_scraper=mock_li,
+		freehire_client=mock_ats,
+		remoteok_provider=mock_rok,
+		wwr_provider=mock_wwr,
+	)
+	user = UserProfile(years_of_experience=2.0, current_role="Software Engineer")
+	prefs = JobPreferences(target_roles=["Software Engineer"], min_fit_score=20.0)
+
+	result = manager.execute_fast_search(user_profile=user, preferences=prefs, time_posted_days=7)
+
+	# Only the 2-day-old job should pass the 7-day recency filter
+	assert result["total_scraped"] == 1
+	assert result["saved_count"] == 1
+	assert result["jobs"][0].company_name == "Acme"
+
 

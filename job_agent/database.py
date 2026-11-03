@@ -235,21 +235,67 @@ class JobTracker:
 			rows = cursor.fetchall()
 			return [dict(row) for row in rows]
 
-	def get_all_jobs(self, platform: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
-		"""Retrieve all cataloged jobs sorted by discovery date."""
+	def get_all_jobs(
+		self,
+		platform: str | None = None,
+		status: str | None = None,
+		search: str | None = None,
+		limit: int = 50,
+		offset: int = 0,
+	) -> list[dict[str, Any]]:
+		"""Retrieve cataloged jobs with optional platform, status, search, and pagination."""
 		with self._get_connection() as conn:
 			cursor = conn.cursor()
 			query = 'SELECT * FROM jobs'
+			conditions: list[str] = []
 			params: list[Any] = []
 			if platform:
-				query += ' WHERE platform = ?'
+				conditions.append('platform = ?')
 				params.append(platform)
-			query += ' ORDER BY discovered_at DESC LIMIT ?'
-			params.append(limit)
+			if status:
+				conditions.append('status = ?')
+				params.append(status)
+			if search:
+				conditions.append('(job_title LIKE ? OR company_name LIKE ? OR location LIKE ?)')
+				search_term = f'%{search}%'
+				params.extend([search_term, search_term, search_term])
+			if conditions:
+				query += ' WHERE ' + ' AND '.join(conditions)
+			query += ' ORDER BY discovered_at DESC LIMIT ? OFFSET ?'
+			params.extend([limit, offset])
 
 			cursor.execute(query, params)
 			rows = cursor.fetchall()
 			return [dict(row) for row in rows]
+
+	def count_jobs(
+		self,
+		platform: str | None = None,
+		status: str | None = None,
+		search: str | None = None,
+	) -> int:
+		"""Count cataloged jobs matching optional platform, status, and search filters."""
+		with self._get_connection() as conn:
+			cursor = conn.cursor()
+			query = 'SELECT COUNT(*) FROM jobs'
+			conditions: list[str] = []
+			params: list[Any] = []
+			if platform:
+				conditions.append('platform = ?')
+				params.append(platform)
+			if status:
+				conditions.append('status = ?')
+				params.append(status)
+			if search:
+				conditions.append('(job_title LIKE ? OR company_name LIKE ? OR location LIKE ?)')
+				search_term = f'%{search}%'
+				params.extend([search_term, search_term, search_term])
+			if conditions:
+				query += ' WHERE ' + ' AND '.join(conditions)
+
+			cursor.execute(query, params)
+			row = cursor.fetchone()
+			return row[0] if row else 0
 
 	def get_jobs_with_hr_email(self, limit: int = 50) -> list[dict[str, Any]]:
 		"""Retrieve jobs where an HR/recruiter email has been extracted and no email sent yet."""

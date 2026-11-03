@@ -271,7 +271,7 @@
 
         <!-- Search Form Card -->
         <div class="bg-white border border-[#e5dfd3] rounded-xl p-5 shadow-subtle">
-          <form @submit.prevent="executeSearch" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <form @submit.prevent="executeSearch" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <div>
               <label class="block text-xs font-medium text-stone-700 mb-1.5">Target Roles</label>
               <input v-model="searchForm.rolesInput" type="text" placeholder="AI Engineer, Software Engineer" class="w-full bg-white border border-stone-200 rounded-lg px-3 py-1.5 text-xs text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-1 focus:ring-stone-400 focus:border-stone-400 shadow-subtle">
@@ -293,14 +293,25 @@
             </div>
 
             <div>
+              <label class="block text-xs font-medium text-stone-700 mb-1.5">Date Posted</label>
+              <select v-model="searchForm.timePostedDays" class="w-full bg-white border border-stone-200 rounded-lg px-3 py-1.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-stone-400 focus:border-stone-400 shadow-subtle">
+                <option value="1">Past 24 Hours (1 day)</option>
+                <option value="7">Past Week (7 days)</option>
+                <option value="14">Past 14 Days (2 weeks)</option>
+                <option value="30">Past Month (30 days)</option>
+                <option value="0">Any Time</option>
+              </select>
+            </div>
+
+            <div>
               <div class="flex items-center justify-between mb-1.5">
-                <label class="text-xs font-medium text-stone-700">Minimum Fit Score</label>
+                <label class="text-xs font-medium text-stone-700">Min Fit Score</label>
                 <span class="text-xs font-semibold text-stone-900">{{ searchForm.minFit }}%</span>
               </div>
               <input v-model.number="searchForm.minFit" type="range" min="20" max="85" step="5" class="w-full accent-stone-800 mt-2">
             </div>
 
-            <div class="lg:col-span-4 flex items-center justify-between pt-3 border-t border-stone-100">
+            <div class="lg:col-span-5 flex items-center justify-between pt-3 border-t border-stone-100">
               <label class="flex items-center space-x-2 text-xs text-stone-600 cursor-pointer">
                 <input v-model="searchForm.easyApplyOnly" type="checkbox" class="rounded border-stone-300 text-stone-900 focus:ring-0">
                 <span>1-Click Easy Apply roles only</span>
@@ -330,6 +341,7 @@
                   <th class="py-2.5 px-4 font-medium">Position & Company</th>
                   <th class="py-2.5 px-3 font-medium">Platform</th>
                   <th class="py-2.5 px-3 font-medium">Location</th>
+                  <th class="py-2.5 px-3 font-medium">Posted</th>
                   <th class="py-2.5 px-3 font-medium">Compensation</th>
                   <th class="py-2.5 px-3 text-center font-medium">Fit Score</th>
                   <th class="py-2.5 px-4 font-medium">Reasoning</th>
@@ -346,6 +358,7 @@
                     <span class="px-2 py-0.5 rounded text-[10px] font-medium uppercase" :class="platformBadgeClass(job.platform)">{{ job.platform }}</span>
                   </td>
                   <td class="py-3 px-3 text-stone-600">{{ job.location }}</td>
+                  <td class="py-3 px-3 text-stone-500 text-[11px] whitespace-nowrap">{{ formatRelativeDate(job.posted_at) }}</td>
                   <td class="py-3 px-3 font-medium text-stone-700">{{ job.salary_range || '—' }}</td>
                   <td class="py-3 px-3 text-center">
                     <span class="px-2 py-0.5 rounded-full text-[11px] font-medium" :class="fitScoreClass(job.match_score)">{{ job.match_score }}%</span>
@@ -368,13 +381,30 @@
       <!-- TAB 3: APPLICATIONS MANAGER -->
       <!-- ============================================================== -->
       <section v-if="currentTab === 'jobs'" class="space-y-6 max-w-6xl mx-auto">
-        <div class="flex items-center justify-between">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <h2 class="text-xl font-semibold tracking-tight text-stone-900">Application Tracker</h2>
             <p class="text-xs text-stone-500 mt-0.5">Discovered vacancies, submission pipeline, and status updates.</p>
           </div>
-          <div class="flex space-x-2">
-            <select v-model="filterStatus" @change="loadJobs" class="bg-white border border-stone-200 rounded-lg px-3 py-1.5 text-xs text-stone-800 shadow-subtle focus:outline-none">
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- Search bar -->
+            <div class="relative w-48">
+              <input v-model="searchQuery" @input="onSearchInput" type="text" placeholder="Search role, company..." class="w-full bg-white border border-stone-200 rounded-lg pl-7 pr-2.5 py-1.5 text-xs text-stone-800 placeholder:text-stone-400 shadow-subtle focus:outline-none focus:border-stone-400">
+              <svg class="w-3.5 h-3.5 text-stone-400 absolute left-2 top-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.3-4.3"/></svg>
+            </div>
+
+            <!-- Platform filter -->
+            <select v-model="filterPlatform" @change="onFilterChange" class="bg-white border border-stone-200 rounded-lg px-2.5 py-1.5 text-xs text-stone-800 shadow-subtle focus:outline-none">
+              <option value="">All Platforms</option>
+              <option value="linkedin">LinkedIn</option>
+              <option value="remoteok">RemoteOK</option>
+              <option value="weworkremotely">WeWorkRemotely</option>
+              <option value="ats_aggregator">Open ATS</option>
+              <option value="wellfound">Wellfound</option>
+            </select>
+
+            <!-- Status filter -->
+            <select v-model="filterStatus" @change="onFilterChange" class="bg-white border border-stone-200 rounded-lg px-2.5 py-1.5 text-xs text-stone-800 shadow-subtle focus:outline-none">
               <option value="">All Statuses</option>
               <option value="found">Pending (Found)</option>
               <option value="applied">Applied</option>
@@ -382,7 +412,18 @@
               <option value="rejected">Rejected</option>
               <option value="offer">Offer</option>
             </select>
-            <button @click="loadJobs" class="px-3 py-1.5 bg-white hover:bg-stone-50 text-stone-700 rounded-lg text-xs font-medium border border-stone-200 shadow-subtle transition">Refresh</button>
+
+            <!-- Page Size -->
+            <select v-model.number="pageSize" @change="onFilterChange" class="bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs text-stone-700 shadow-subtle focus:outline-none">
+              <option :value="10">10 / pg</option>
+              <option :value="15">15 / pg</option>
+              <option :value="25">25 / pg</option>
+              <option :value="50">50 / pg</option>
+            </select>
+
+            <button @click="loadJobs" class="px-2.5 py-1.5 bg-white hover:bg-stone-50 text-stone-700 rounded-lg text-xs font-medium border border-stone-200 shadow-subtle transition" title="Refresh list">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5"/></svg>
+            </button>
           </div>
         </div>
 
@@ -403,7 +444,7 @@
                 </tr>
               </thead>
               <tbody class="divide-y divide-stone-100">
-                <tr v-for="job in jobsList" :key="job.id" class="hover:bg-[#faf8f5] transition-colors">
+                <tr v-for="job in paginatedJobs" :key="job.id" class="hover:bg-[#faf8f5] transition-colors">
                   <td class="py-3 px-4 text-stone-400 font-mono text-[11px]">{{ job.id }}</td>
                   <td class="py-3 px-4">
                     <p class="font-medium text-stone-900 text-xs">{{ job.job_title }}</p>
@@ -438,11 +479,39 @@
                     <button @click="deleteJob(job.id)" class="px-2 py-1 bg-white hover:bg-red-50 text-stone-400 hover:text-red-600 rounded-md text-[11px] font-medium border border-stone-200 transition" title="Delete record">✕</button>
                   </td>
                 </tr>
-                <tr v-if="!jobsList.length">
-                  <td colspan="8" class="text-center py-10 text-stone-400 text-xs">No jobs currently match this status filter.</td>
+                <tr v-if="!paginatedJobs.length">
+                  <td colspan="8" class="text-center py-10 text-stone-400 text-xs">No jobs currently match this filter.</td>
                 </tr>
               </tbody>
             </table>
+          </div>
+
+          <!-- Pagination Footer Bar -->
+          <div v-if="totalJobs > 0" class="px-5 py-3 border-t border-[#e5dfd3] bg-[#faf8f5] flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-stone-500">
+            <div>
+              Showing <span class="font-medium text-stone-900">{{ (currentPage - 1) * pageSize + 1 }}</span> to <span class="font-medium text-stone-900">{{ Math.min(currentPage * pageSize, totalJobs) }}</span> of <span class="font-medium text-stone-900">{{ totalJobs }}</span> positions
+            </div>
+            <div class="flex items-center space-x-1">
+              <!-- Previous -->
+              <button @click="prevPage" :disabled="currentPage <= 1" class="px-2.5 py-1 bg-white hover:bg-stone-50 disabled:opacity-40 text-stone-700 rounded-md text-xs font-medium border border-stone-200 shadow-subtle transition flex items-center space-x-1">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+                <span>Prev</span>
+              </button>
+
+              <!-- Page Numbers -->
+              <template v-for="(p, idx) in visiblePages" :key="idx">
+                <span v-if="p === '...'" class="px-1.5 py-1 text-stone-400 text-xs">...</span>
+                <button v-else @click="goToPage(p)" :class="p === currentPage ? 'bg-stone-900 text-stone-50 font-medium' : 'bg-white hover:bg-stone-50 text-stone-700 border border-stone-200'" class="min-w-[28px] h-7 px-2 rounded-md text-xs shadow-subtle transition flex items-center justify-center">
+                  {{ p }}
+                </button>
+              </template>
+
+              <!-- Next -->
+              <button @click="nextPage" :disabled="currentPage >= totalPages" class="px-2.5 py-1 bg-white hover:bg-stone-50 disabled:opacity-40 text-stone-700 rounded-md text-xs font-medium border border-stone-200 shadow-subtle transition flex items-center space-x-1">
+                <span>Next</span>
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -633,14 +702,18 @@
 
   <!-- Vue 3 Application Script -->
   <script>
-    const { createApp, ref, onMounted } = Vue;
+    const { createApp, ref, computed, onMounted } = Vue;
 
     createApp({
       setup() {
         const currentTab = ref('dashboard');
         const stats = ref({});
-        const jobsList = ref([]);
+        const rawJobs = ref([]);
         const filterStatus = ref('');
+        const filterPlatform = ref('');
+        const searchQuery = ref('');
+        const currentPage = ref(1);
+        const pageSize = ref(15);
         const profile = ref({});
         const skillsInput = ref('');
         const searching = ref(false);
@@ -662,6 +735,7 @@
           location: 'Remote',
           platformSelect: 'all',
           minFit: 40,
+          timePostedDays: '14',
           easyApplyOnly: false
         });
 
@@ -716,13 +790,89 @@
           } catch (e) { console.error('Failed to load stats', e); }
         };
 
+        const filteredJobs = computed(() => {
+          let list = rawJobs.value || [];
+          if (filterStatus.value) {
+            list = list.filter(j => (j.status || '').toLowerCase() === filterStatus.value.toLowerCase());
+          }
+          if (filterPlatform.value) {
+            list = list.filter(j => (j.platform || '').toLowerCase().includes(filterPlatform.value.toLowerCase()));
+          }
+          if (searchQuery.value && searchQuery.value.trim()) {
+            const q = searchQuery.value.trim().toLowerCase();
+            list = list.filter(j =>
+              (j.job_title || '').toLowerCase().includes(q) ||
+              (j.company_name || '').toLowerCase().includes(q) ||
+              (j.location || '').toLowerCase().includes(q)
+            );
+          }
+          return list;
+        });
+
+        const totalJobs = computed(() => filteredJobs.value.length);
+        const totalPages = computed(() => Math.max(1, Math.ceil(totalJobs.value / pageSize.value)));
+
+        const paginatedJobs = computed(() => {
+          const start = (currentPage.value - 1) * pageSize.value;
+          return filteredJobs.value.slice(start, start + pageSize.value);
+        });
+
         const loadJobs = async () => {
           try {
-            const url = filterStatus.value ? `/api/jobs?status=${filterStatus.value}&limit=60` : '/api/jobs?limit=60';
-            const res = await fetch(url);
-            jobsList.value = await res.json();
-          } catch (e) { console.error('Failed to load jobs', e); }
+            const res = await fetch('/api/jobs?limit=1000');
+            if (res.ok) {
+              const data = await res.json();
+              rawJobs.value = Array.isArray(data) ? data : (data.items || []);
+            }
+          } catch (e) {
+            console.error('Failed to load jobs', e);
+          }
         };
+
+        const onFilterChange = () => {
+          currentPage.value = 1;
+        };
+
+        const onSearchInput = () => {
+          currentPage.value = 1;
+        };
+
+        const goToPage = (p) => {
+          if (p >= 1 && p <= totalPages.value && p !== currentPage.value) {
+            currentPage.value = p;
+          }
+        };
+
+        const nextPage = () => {
+          if (currentPage.value < totalPages.value) {
+            goToPage(currentPage.value + 1);
+          }
+        };
+
+        const prevPage = () => {
+          if (currentPage.value > 1) {
+            goToPage(currentPage.value - 1);
+          }
+        };
+
+        const visiblePages = computed(() => {
+          const total = totalPages.value;
+          const current = currentPage.value;
+          if (total <= 7) {
+            return Array.from({ length: total }, (_, i) => i + 1);
+          }
+          const pages = [];
+          pages.push(1);
+          if (current > 3) pages.push('...');
+          const start = Math.max(2, current - 1);
+          const end = Math.min(total - 1, current + 1);
+          for (let i = start; i <= end; i++) {
+            pages.push(i);
+          }
+          if (current < total - 2) pages.push('...');
+          pages.push(total);
+          return pages;
+        });
 
         const loadProfile = async () => {
           try {
@@ -739,18 +889,39 @@
           } catch (e) {}
         };
 
+        const formatRelativeDate = (dateStr) => {
+          if (!dateStr) return 'Recent';
+          const s = String(dateStr).trim();
+          if (s.includes('ago') || s.includes('Today') || s.includes('Yesterday')) return s;
+          try {
+            const d = new Date(s);
+            if (!isNaN(d.getTime())) {
+              const diffMs = Date.now() - d.getTime();
+              const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+              if (diffDays <= 0) return 'Today';
+              if (diffDays === 1) return 'Yesterday';
+              if (diffDays < 7) return `${diffDays}d ago`;
+              if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+              return `${Math.floor(diffDays / 30)}mo ago`;
+            }
+          } catch (e) {}
+          return s.slice(0, 10);
+        };
+
         const executeSearch = async () => {
           searching.value = true;
           try {
             const roles = searchForm.value.rolesInput.split(',').map(r => r.trim()).filter(Boolean);
             const platforms = searchForm.value.platformSelect.split(',').map(p => p.trim());
+            const postedDays = parseInt(searchForm.value.timePostedDays);
             const payload = {
               roles: roles,
               locations: [searchForm.value.location],
               platforms: platforms,
               limit: 15,
               min_fit_score: searchForm.value.minFit,
-              easy_apply_only: searchForm.value.easyApplyOnly
+              easy_apply_only: searchForm.value.easyApplyOnly,
+              time_posted_days: postedDays > 0 ? postedDays : null
             };
             const res = await fetch('/api/search', {
               method: 'POST',
@@ -879,8 +1050,17 @@
         return {
           currentTab,
           stats,
-          jobsList,
+          rawJobs,
+          filteredJobs,
+          paginatedJobs,
           filterStatus,
+          filterPlatform,
+          searchQuery,
+          currentPage,
+          pageSize,
+          totalJobs,
+          totalPages,
+          visiblePages,
           profile,
           skillsInput,
           searching,
@@ -893,8 +1073,14 @@
           navClass,
           platformBadgeClass,
           fitScoreClass,
+          formatRelativeDate,
           loadAllData,
           loadJobs,
+          onFilterChange,
+          onSearchInput,
+          goToPage,
+          nextPage,
+          prevPage,
           executeSearch,
           changeJobStatus,
           deleteJob,

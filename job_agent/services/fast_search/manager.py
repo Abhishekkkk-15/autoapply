@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import concurrent.futures
+import email.utils
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from job_agent.config import JobPreferences, UserProfile
@@ -19,6 +21,30 @@ from job_agent.services.fast_search.wwr_provider import WeWorkRemotelyProvider
 from job_agent.services.fit_scorer import JobFitScorer
 
 logger = logging.getLogger(__name__)
+
+
+def _is_within_days(date_str: str | None, max_days: int | None) -> bool:
+	"""Check if an ISO or RFC formatted date falls within the last max_days."""
+	if not max_days or not date_str:
+		return True
+	now = datetime.now(UTC)
+	dt: datetime | None = None
+	clean_str = str(date_str).strip()
+	if "T" in clean_str or (len(clean_str) >= 10 and clean_str[4] == "-" and clean_str[7] == "-"):
+		try:
+			dt = datetime.fromisoformat(clean_str)
+		except (ValueError, TypeError):
+			dt = None
+	if dt is None:
+		try:
+			dt = email.utils.parsedate_to_datetime(clean_str)
+		except (ValueError, TypeError, IndexError):
+			dt = None
+	if dt is not None:
+		if dt.tzinfo is None:
+			dt = dt.replace(tzinfo=UTC)
+		return (now - dt) <= timedelta(days=max_days)
+	return True
 
 
 class FastSearchManager:
@@ -56,6 +82,7 @@ class FastSearchManager:
 		min_fit_score: float | None = None,
 		hydrate_descriptions: bool = False,
 		easy_apply_only: bool = False,
+		time_posted_days: int | None = 14,
 	) -> dict[str, Any]:
 		"""Execute concurrent multi-source fast discovery and qualification."""
 		target_roles = roles or preferences.target_roles or [user_profile.current_role]
@@ -79,7 +106,8 @@ class FastSearchManager:
 
 		logger.info(
 			f"⚡ Fast-Search starting in parallel across {len(target_roles)} roles and {len(target_locations)} locations "
-			f"(Providers: LinkedIn={include_linkedin}, ATS={include_ats}, RemoteOK={include_remoteok}, WWR={include_wwr})..."
+			f"(Providers: LinkedIn={include_linkedin}, ATS={include_ats}, RemoteOK={include_remoteok}, WWR={include_wwr}, "
+			f"PostedWithin={time_posted_days}d)..."
 		)
 
 		tasks: list[tuple[str, Any]] = []
@@ -94,6 +122,7 @@ class FastSearchManager:
 							location=l,
 							remote_mode="remote" if "remote" in l.lower() else None,
 							junior_filter=is_junior,
+							time_posted_days=time_posted_days,
 							limit=limit_per_query,
 							hydrate_details=hydrate_descriptions,
 						),
@@ -139,6 +168,10 @@ class FastSearchManager:
 					for j in jobs:
 						# Filter by Easy Apply if requested
 						if easy_apply_only and not j.is_easy_apply:
+							continue
+
+						# Filter by posted recency window if available
+						if time_posted_days and not _is_within_days(j.posted_at, time_posted_days):
 							continue
 
 						clean_url = clean_job_url(j.job_url)

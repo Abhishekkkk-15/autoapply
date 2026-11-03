@@ -82,6 +82,10 @@ flowchart TD
    - Filter and purge low-scoring jobs with `autoapply clean --min-fit 50.0`.
    - Start completely fresh anytime with `autoapply reset-db`.
 
+9. **Interactive Web Dashboard & REST API (`autoapply ui`)**:
+   - Fast, self-contained single-page dashboard built with FastAPI, Vue 3, and Tailwind CSS.
+   - Live funnel metrics, multi-platform search trigger, job table with inline status toggles, AI cover pitch generator, candidate profile editor, and background autopilot runner with real-time log streaming.
+
 ---
 
 ## Directory Structure
@@ -259,6 +263,26 @@ uv run autoapply auto --mode free
 # 4. Target specific platforms with experience override:
 uv run autoapply auto --platforms wellfound,linkedin --years-exp 0.7 --dry-run
 ```
+
+#### Interactive Web Mission Control (`autoapply ui`)
+
+Launch the local web dashboard to manage searches, track vacancies, review analytics, and control autopilot runs directly from your browser:
+
+```powershell
+uv run autoapply ui
+# Or aliases:
+uv run autoapply web
+uv run autoapply dashboard
+```
+
+Open your browser to `http://127.0.0.1:8000` (interactive OpenAPI documentation at `http://127.0.0.1:8000/docs`).
+
+Key Capabilities:
+* **Funnel Analytics**: Real-time stats on discovered vacancies, applications submitted, interviews booked, and platform distributions.
+* **Instant Discovery**: Multi-platform fast search trigger with customizable role, location, platform, and minimum match filters.
+* **Job Tracker**: Sortable table with inline status toggles, deletion, and one-click AI cover letter pitch generation.
+* **Autopilot Control**: Launch background application runs or end-to-end pipelines with real-time log streaming and one-click abort.
+* **Candidate Settings**: Visual editors for `user_profile.json` and `job_preferences.json`.
 
 #### Individual Phase Execution
 

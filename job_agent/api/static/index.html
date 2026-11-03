@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AutoApply AI - Mission Control</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Vue 3 CDN -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#ecfeff',
+              100: '#cffafe',
+              400: '#22d3ee',
+              500: '#06b6d4',
+              600: '#0891b2',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    [v-cloak] { display: none; }
+    /* Custom scrollbar for terminal logs */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased">
+  <div id="app" v-cloak class="flex h-screen overflow-hidden">
+
+    <!-- Sidebar Navigation -->
+    <aside class="w-64 bg-slate-900/90 border-r border-slate-800 flex flex-col justify-between flex-shrink-0 z-20">
+      <div>
+        <!-- Logo Header -->
+        <div class="px-6 py-5 border-b border-slate-800 flex items-center space-x-3">
+          <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+            <span class="text-xl font-black text-white">⚡</span>
+          </div>
+          <div>
+            <h1 class="text-lg font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">AutoApply</h1>
+            <p class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Mission Control</p>
+          </div>
+        </div>
+
+        <!-- Navigation Links -->
+        <nav class="p-3 space-y-1">
+          <button @click="currentTab = 'dashboard'" :class="navClass('dashboard')">
+            <span class="text-lg">📊</span>
+            <span class="font-medium text-sm">Dashboard</span>
+          </button>
+          <button @click="currentTab = 'search'" :class="navClass('search')">
+            <span class="text-lg">⚡</span>
+            <span class="font-medium text-sm">Job Discovery</span>
+          </button>
+          <button @click="currentTab = 'jobs'" :class="navClass('jobs')">
+            <span class="text-lg">📋</span>
+            <span class="font-medium text-sm">Applications</span>
+            <span v-if="stats.total_found" class="ml-auto text-xs bg-slate-800 text-cyan-400 px-2 py-0.5 rounded-full border border-slate-700">{{ stats.total_found }}</span>
+          </button>
+          <button @click="currentTab = 'runner'" :class="navClass('runner')">
+            <span class="text-lg">🤖</span>
+            <span class="font-medium text-sm">Autopilot Runner</span>
+            <span v-if="runner.is_running" class="ml-auto flex h-2 w-2 relative">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+            </span>
+          </button>
+          <button @click="currentTab = 'profile'" :class="navClass('profile')">
+            <span class="text-lg">👤</span>
+            <span class="font-medium text-sm">Profile & Settings</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- User & Status Pill -->
+      <div class="p-4 border-t border-slate-800">
+        <div class="bg-slate-800/60 rounded-xl p-3 border border-slate-700/50 flex items-center justify-between">
+          <div class="truncate">
+            <p class="text-xs font-semibold text-slate-200 truncate">{{ profile.name || 'Candidate' }}</p>
+            <p class="text-[11px] text-cyan-400 truncate">{{ profile.current_role }} ({{ profile.years_of_experience }}y)</p>
+          </div>
+          <span class="flex h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50" title="Backend Online"></span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 overflow-y-auto bg-slate-950 p-8">
+
+      <!-- ============================================================== -->
+      <!-- TAB 1: DASHBOARD OVERVIEW -->
+      <!-- ============================================================== -->
+      <section v-if="currentTab === 'dashboard'" class="space-y-6 max-w-7xl mx-auto">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-2xl font-black text-white">Campaign Overview</h2>
+            <p class="text-sm text-slate-400">Real-time recruitment funnel and application intelligence.</p>
+          </div>
+          <button @click="loadAllData" class="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium border border-slate-700 flex items-center space-x-1.5">
+            <span>🔄</span> <span>Refresh</span>
+          </button>
+        </div>
+
+        <!-- Metric Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+            <div class="flex items-center justify-between text-slate-400 mb-2">
+              <span class="text-xs font-semibold uppercase tracking-wider">Discovered</span>
+              <span class="text-base">🔎</span>
+            </div>
+            <p class="text-3xl font-black text-white">{{ stats.total_found || 0 }}</p>
+            <p class="text-[11px] text-slate-500 mt-1">Verified vacancies in SQLite</p>
+          </div>
+
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+            <div class="flex items-center justify-between text-slate-400 mb-2">
+              <span class="text-xs font-semibold uppercase tracking-wider">Applied</span>
+              <span class="text-base">🚀</span>
+            </div>
+            <p class="text-3xl font-black text-cyan-400">{{ stats.total_applied || 0 }}</p>
+            <p class="text-[11px] text-slate-500 mt-1">Completed submissions</p>
+          </div>
+
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+            <div class="flex items-center justify-between text-slate-400 mb-2">
+              <span class="text-xs font-semibold uppercase tracking-wider">Interviews</span>
+              <span class="text-base">🎯</span>
+            </div>
+            <p class="text-3xl font-black text-emerald-400">{{ stats.total_interviews || 0 }}</p>
+            <p class="text-[11px] text-slate-500 mt-1">Scheduled calls</p>
+          </div>
+
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+            <div class="flex items-center justify-between text-slate-400 mb-2">
+              <span class="text-xs font-semibold uppercase tracking-wider">HR Contacts</span>
+              <span class="text-base">🕵️</span>
+            </div>
+            <p class="text-3xl font-black text-indigo-400">{{ stats.total_hr_emails || 0 }}</p>
+            <p class="text-[11px] text-slate-500 mt-1">Recruiter emails hunted</p>
+          </div>
+
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+            <div class="flex items-center justify-between text-slate-400 mb-2">
+              <span class="text-xs font-semibold uppercase tracking-wider">Cold Emails</span>
+              <span class="text-base">✉️</span>
+            </div>
+            <p class="text-3xl font-black text-amber-400">{{ stats.total_emails_sent || 0 }}</p>
+            <p class="text-[11px] text-slate-500 mt-1">Dispatched via Gmail</p>
+          </div>
+        </div>
+
+        <!-- Quick Actions & Recent Jobs -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- Quick Launch Action Panel -->
+          <div class="bg-gradient-to-br from-slate-900 to-slate-900/60 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between">
+            <div>
+              <h3 class="text-base font-bold text-white mb-2">⚡ Instant Discovery</h3>
+              <p class="text-xs text-slate-400 leading-relaxed">
+                Run zero-token parallel search across LinkedIn, RemoteOK, WeWorkRemotely, and ATS aggregators.
+              </p>
+            </div>
+            <div class="mt-6 space-y-2">
+              <button @click="currentTab = 'search'" class="w-full py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold rounded-xl text-xs transition shadow-lg shadow-cyan-500/20">
+                Open Discovery Console
+              </button>
+              <button @click="currentTab = 'runner'" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-xs border border-slate-700 transition">
+                Launch Autopilot Pipeline
+              </button>
+            </div>
+          </div>
+
+          <!-- Platform Distribution -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 lg:col-span-2">
+            <h3 class="text-base font-bold text-white mb-4">Platform Distribution</h3>
+            <div v-if="stats.platform_breakdown && stats.platform_breakdown.length" class="space-y-3">
+              <div v-for="p in stats.platform_breakdown" :key="p.platform" class="bg-slate-950/60 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                  <span class="px-2.5 py-1 text-[11px] font-bold rounded-md uppercase" :class="platformBadgeClass(p.platform)">{{ p.platform }}</span>
+                  <span class="text-xs text-slate-300 font-medium">{{ p.count }} jobs cataloged</span>
+                </div>
+                <span class="text-xs font-semibold text-emerald-400">{{ p.applied || 0 }} Applied</span>
+              </div>
+            </div>
+            <p v-else class="text-xs text-slate-500 py-4 text-center">No platform data cataloged yet. Run a search to populate.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB 2: JOB DISCOVERY (FAST SEARCH) -->
+      <!-- ============================================================== -->
+      <section v-if="currentTab === 'search'" class="space-y-6 max-w-7xl mx-auto">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-2xl font-black text-white">⚡ High-Speed Discovery Engine</h2>
+            <p class="text-sm text-slate-400">Concurrently queries LinkedIn, RemoteOK, WeWorkRemotely, and ATS aggregators in ~2.5s.</p>
+          </div>
+        </div>
+
+        <!-- Search Form Card -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm">
+          <form @submit.prevent="executeSearch" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1.5">Target Roles (comma-separated)</label>
+              <input v-model="searchForm.rolesInput" type="text" placeholder="AI Engineer, Software Engineer" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-500">
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1.5">Location</label>
+              <input v-model="searchForm.location" type="text" placeholder="Remote" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-500">
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1.5">Platforms</label>
+              <select v-model="searchForm.platformSelect" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-500">
+                <option value="all">All Providers (LinkedIn, RemoteOK, WWR, ATS)</option>
+                <option value="remoteok,wwr">Remote Boards (RemoteOK & WWR with Salaries)</option>
+                <option value="linkedin">LinkedIn Only</option>
+                <option value="ats">Freehire ATS Only</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1.5">Min Fit Score: {{ searchForm.minFit }}%</label>
+              <input v-model.number="searchForm.minFit" type="range" min="20" max="85" step="5" class="w-full accent-cyan-500 mt-2">
+            </div>
+
+            <div class="lg:col-span-4 flex items-center justify-between pt-2 border-t border-slate-800/80">
+              <label class="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+                <input v-model="searchForm.easyApplyOnly" type="checkbox" class="rounded bg-slate-950 border-slate-700 text-cyan-500 focus:ring-0">
+                <span>Filter 1-Click Easy Apply roles only</span>
+              </label>
+
+              <button type="submit" :disabled="searching" class="px-6 py-2.5 bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 font-bold rounded-xl text-xs flex items-center space-x-2 transition shadow-lg shadow-cyan-500/20">
+                <span v-if="searching" class="animate-spin">⏳</span>
+                <span>{{ searching ? 'Searching in Parallel...' : 'Run Fast Search' }}</span>
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Search Results Table -->
+        <div v-if="searchResults && searchResults.jobs" class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+          <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
+            <div>
+              <h3 class="text-sm font-bold text-white">Discovered Qualified Vacancies</h3>
+              <p class="text-xs text-slate-400">Scraped {{ searchResults.total_scraped }} raw, qualified and saved {{ searchResults.saved_count }} to database.</p>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-950/60 border-b border-slate-800 text-slate-400 uppercase font-semibold text-[10px] tracking-wider">
+                <tr>
+                  <th class="py-3 px-4">Role & Company</th>
+                  <th class="py-3 px-3">Platform</th>
+                  <th class="py-3 px-3">Location</th>
+                  <th class="py-3 px-3">Salary</th>
+                  <th class="py-3 px-3 text-center">Fit Score</th>
+                  <th class="py-3 px-4">Reasoning</th>
+                  <th class="py-3 px-4 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800/60">
+                <tr v-for="job in searchResults.jobs" :key="job.job_url" class="hover:bg-slate-800/30 transition">
+                  <td class="py-3.5 px-4">
+                    <p class="font-bold text-white text-xs">{{ job.job_title }}</p>
+                    <p class="text-[11px] text-cyan-400 font-medium">{{ job.company_name }}</p>
+                  </td>
+                  <td class="py-3.5 px-3">
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase" :class="platformBadgeClass(job.platform)">{{ job.platform }}</span>
+                  </td>
+                  <td class="py-3.5 px-3 text-slate-300">{{ job.location }}</td>
+                  <td class="py-3.5 px-3 font-semibold text-emerald-400">{{ job.salary_range || '-' }}</td>
+                  <td class="py-3.5 px-3 text-center">
+                    <span class="px-2 py-0.5 rounded-full text-xs font-bold" :class="fitScoreClass(job.match_score)">{{ job.match_score }}%</span>
+                  </td>
+                  <td class="py-3.5 px-4 text-slate-400 text-[11px] max-w-xs truncate" :title="job.notes">{{ job.notes || 'Qualified' }}</td>
+                  <td class="py-3.5 px-4 text-right">
+                    <a :href="job.job_url" target="_blank" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[11px] font-medium border border-slate-700">View</a>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB 3: APPLICATIONS MANAGER -->
+      <!-- ============================================================== -->
+      <section v-if="currentTab === 'jobs'" class="space-y-6 max-w-7xl mx-auto">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-2xl font-black text-white">Application Tracker</h2>
+            <p class="text-sm text-slate-400">Cataloged vacancies, application statuses, and interview tracking.</p>
+          </div>
+          <div class="flex space-x-2">
+            <select v-model="filterStatus" @change="loadJobs" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white">
+              <option value="">All Statuses</option>
+              <option value="found">Pending (Found)</option>
+              <option value="applied">Applied</option>
+              <option value="interview">Interview</option>
+              <option value="rejected">Rejected</option>
+              <option value="offer">Offer</option>
+            </select>
+            <button @click="loadJobs" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium border border-slate-700">Refresh</button>
+          </div>
+        </div>
+
+        <!-- Jobs Table Card -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-950/60 border-b border-slate-800 text-slate-400 uppercase font-semibold text-[10px] tracking-wider">
+                <tr>
+                  <th class="py-3 px-4">#</th>
+                  <th class="py-3 px-4">Role & Company</th>
+                  <th class="py-3 px-3">Platform</th>
+                  <th class="py-3 px-3">Location</th>
+                  <th class="py-3 px-3">Salary</th>
+                  <th class="py-3 px-3 text-center">Fit</th>
+                  <th class="py-3 px-3">Status</th>
+                  <th class="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800/60">
+                <tr v-for="job in jobsList" :key="job.id" class="hover:bg-slate-800/30 transition">
+                  <td class="py-3.5 px-4 text-slate-500 font-mono">{{ job.id }}</td>
+                  <td class="py-3.5 px-4">
+                    <p class="font-bold text-white text-xs">{{ job.job_title }}</p>
+                    <p class="text-[11px] text-cyan-400 font-medium">{{ job.company_name }}</p>
+                  </td>
+                  <td class="py-3.5 px-3">
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase" :class="platformBadgeClass(job.platform)">{{ job.platform }}</span>
+                  </td>
+                  <td class="py-3.5 px-3 text-slate-300">{{ job.location }}</td>
+                  <td class="py-3.5 px-3 font-semibold text-emerald-400">{{ job.salary_range || '-' }}</td>
+                  <td class="py-3.5 px-3 text-center">
+                    <span class="px-2 py-0.5 rounded-full text-xs font-bold" :class="fitScoreClass(job.match_score)">{{ job.match_score }}%</span>
+                  </td>
+                  <td class="py-3.5 px-3">
+                    <select :value="job.status" @change="changeJobStatus(job.id, $event.target.value)" class="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-[11px] font-semibold text-slate-200">
+                      <option value="found">Found</option>
+                      <option value="applied">Applied</option>
+                      <option value="interview">Interview</option>
+                      <option value="rejected">Rejected</option>
+                      <option value="offer">Offer</option>
+                    </select>
+                  </td>
+                  <td class="py-3.5 px-4 text-right space-x-1.5">
+                    <button @click="openPitchModal(job)" class="px-2 py-1 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 rounded text-[11px] font-medium border border-cyan-500/30">AI Pitch</button>
+                    <a :href="job.job_url" target="_blank" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[11px] font-medium border border-slate-700">Open</a>
+                    <button @click="deleteJob(job.id)" class="px-2 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded text-[11px] font-medium border border-red-500/30">✕</button>
+                  </td>
+                </tr>
+                <tr v-if="!jobsList.length">
+                  <td colspan="8" class="text-center py-8 text-slate-500">No jobs match this filter.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB 4: AUTOPILOT RUNNER & LIVE LOGS -->
+      <!-- ============================================================== -->
+      <section v-if="currentTab === 'runner'" class="space-y-6 max-w-7xl mx-auto">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-2xl font-black text-white">🤖 Autonomous Control Center</h2>
+            <p class="text-sm text-slate-400">Launch background form autofilling and multi-phase autonomous execution.</p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span v-if="runner.is_running" class="px-3 py-1 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-bold rounded-full animate-pulse flex items-center space-x-1.5">
+              <span>●</span> <span>RUNNING: {{ runner.current_task }}</span>
+            </span>
+            <button v-if="runner.is_running" @click="stopRunner" class="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl text-xs">Stop Execution</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- Control Panel -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+            <h3 class="text-sm font-bold text-white border-b border-slate-800 pb-2">Autopilot Parameters</h3>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Execution Mode</label>
+              <select v-model="runnerForm.mode" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white">
+                <option value="ask">Ask Mode (Human Confirmation Before Submit)</option>
+                <option value="free">Free Mode (100% Autonomous Autopilot)</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Submission Mode</label>
+              <div class="flex items-center space-x-4 bg-slate-950 p-2.5 rounded-xl border border-slate-700">
+                <label class="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+                  <input v-model="runnerForm.dryRun" :value="true" type="radio" class="text-cyan-500">
+                  <span>Dry-Run (Safe Preview)</span>
+                </label>
+                <label class="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+                  <input v-model="runnerForm.dryRun" :value="false" type="radio" class="text-red-500">
+                  <span class="text-red-400 font-semibold">Live Submit</span>
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Max Applications Per Run: {{ runnerForm.limit }}</label>
+              <input v-model.number="runnerForm.limit" type="range" min="1" max="15" class="w-full accent-cyan-500">
+            </div>
+
+            <div class="pt-2 space-y-2">
+              <button @click="startApplyRun" :disabled="runner.is_running" class="w-full py-2.5 bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 font-bold rounded-xl text-xs shadow-lg shadow-cyan-500/20">
+                Apply to Best-Fit Pending Jobs
+              </button>
+              <button @click="startFullPipeline" :disabled="runner.is_running" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 font-semibold rounded-xl text-xs border border-slate-700">
+                Run 4-Phase Full Autonomous Pipeline
+              </button>
+            </div>
+          </div>
+
+          <!-- Live Terminal Console -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 lg:col-span-2 flex flex-col justify-between">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-2 mb-3">
+              <span class="text-xs font-mono text-cyan-400">🖥️ Live Activity Stream</span>
+              <button @click="clearLogs" class="text-[11px] text-slate-500 hover:text-slate-300">Clear</button>
+            </div>
+
+            <div class="bg-slate-950 rounded-xl p-4 font-mono text-xs text-slate-300 h-96 overflow-y-auto space-y-1 border border-slate-800">
+              <div v-for="(log, i) in runner.recent_logs" :key="i" class="leading-relaxed" :class="log.includes('ERROR') ? 'text-red-400' : (log.includes('Started') ? 'text-cyan-400' : 'text-slate-300')">
+                {{ log }}
+              </div>
+              <div v-if="!runner.recent_logs || !runner.recent_logs.length" class="text-slate-600 text-center py-16">
+                System idle. Launch a search or application task to view real-time logs.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB 5: PROFILE & PREFERENCES -->
+      <!-- ============================================================== -->
+      <section v-if="currentTab === 'profile'" class="space-y-6 max-w-4xl mx-auto">
+        <div>
+          <h2 class="text-2xl font-black text-white">Candidate Profile & Preferences</h2>
+          <p class="text-sm text-slate-400">Configure candidate credentials and screening parameters saved in user_profile.json.</p>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm space-y-6">
+          <form @submit.prevent="saveProfile" class="space-y-4">
+            <h3 class="text-sm font-bold text-cyan-400 uppercase tracking-wider text-[11px]">Personal & Contact Information</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">Full Legal Name</label>
+                <input v-model="profile.name" type="text" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">Email</label>
+                <input v-model="profile.email" type="email" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">Phone</label>
+                <input v-model="profile.phone" type="text" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">Location</label>
+                <input v-model="profile.location" type="text" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white">
+              </div>
+            </div>
+
+            <h3 class="text-sm font-bold text-cyan-400 uppercase tracking-wider text-[11px] pt-4 border-t border-slate-800">Experience & Qualifications</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">Years of Experience</label>
+                <input v-model.number="profile.years_of_experience" type="number" step="0.1" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white">
+              </div>
+              <div class="md:col-span-2">
+                <label class="block text-xs font-semibold text-slate-300 mb-1">Current / Target Role</label>
+                <input v-model="profile.current_role" type="text" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white">
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Core Technical Skills (comma-separated)</label>
+              <input v-model="skillsInput" type="text" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white">
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Executive Summary / Bio</label>
+              <textarea v-model="profile.summary" rows="3" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"></textarea>
+            </div>
+
+            <div class="pt-4 border-t border-slate-800 flex justify-end">
+              <button type="submit" class="px-6 py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold rounded-xl text-xs transition shadow-lg shadow-cyan-500/20">
+                Save Profile Configuration
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Modal: AI Pitch Generator -->
+    <div v-if="pitchModal.open" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <h3 class="text-sm font-bold text-white">🤖 Tailored AI Pitch Note</h3>
+          <button @click="pitchModal.open = false" class="text-slate-400 hover:text-white">✕</button>
+        </div>
+        <div class="text-xs text-slate-300">
+          <p class="font-semibold text-cyan-400">{{ pitchModal.jobTitle }} at {{ pitchModal.company }}</p>
+        </div>
+        <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs text-slate-200 leading-relaxed font-sans select-all min-h-[120px]">
+          <span v-if="pitchModal.loading" class="text-slate-500 animate-pulse">Generating tailored pitch via LLM...</span>
+          <span v-else>{{ pitchModal.pitch }}</span>
+        </div>
+        <div class="flex justify-end space-x-2">
+          <button @click="copyPitch" class="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold rounded-xl text-xs">Copy Pitch</button>
+          <button @click="pitchModal.open = false" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl text-xs">Close</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Vue 3 Application Script -->
+  <script>
+    const { createApp, ref, onMounted } = Vue;
+
+    createApp({
+      setup() {
+        const currentTab = ref('dashboard');
+        const stats = ref({});
+        const jobsList = ref([]);
+        const filterStatus = ref('');
+        const profile = ref({});
+        const skillsInput = ref('');
+        const searching = ref(false);
+        const searchResults = ref(null);
+
+        const searchForm = ref({
+          rolesInput: 'AI Engineer, Software Engineer',
+          location: 'Remote',
+          platformSelect: 'all',
+          minFit: 40,
+          easyApplyOnly: false
+        });
+
+        const runner = ref({
+          is_running: false,
+          current_task: 'idle',
+          recent_logs: []
+        });
+
+        const runnerForm = ref({
+          mode: 'ask',
+          dryRun: true,
+          limit: 5
+        });
+
+        const pitchModal = ref({
+          open: false,
+          jobTitle: '',
+          company: '',
+          pitch: '',
+          loading: false
+        });
+
+        const navClass = (tab) => {
+          return currentTab.value === tab
+            ? 'w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl bg-cyan-500/10 text-cyan-400 font-semibold border border-cyan-500/20'
+            : 'w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition';
+        };
+
+        const platformBadgeClass = (platform) => {
+          const map = {
+            linkedin: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
+            remoteok: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
+            weworkremotely: 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
+            ats_aggregator: 'bg-purple-500/10 text-purple-400 border border-purple-500/20',
+            wellfound: 'bg-rose-500/10 text-rose-400 border border-rose-500/20',
+          };
+          return map[platform] || 'bg-slate-800 text-slate-300';
+        };
+
+        const fitScoreClass = (score) => {
+          if (score >= 65) return 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+          if (score >= 45) return 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20';
+          return 'bg-red-500/10 text-red-400 border border-red-500/20';
+        };
+
+        const loadStats = async () => {
+          try {
+            const res = await fetch('/api/stats');
+            stats.value = await res.json();
+          } catch (e) { console.error('Failed to load stats', e); }
+        };
+
+        const loadJobs = async () => {
+          try {
+            const url = filterStatus.value ? `/api/jobs?status=${filterStatus.value}&limit=60` : '/api/jobs?limit=60';
+            const res = await fetch(url);
+            jobsList.value = await res.json();
+          } catch (e) { console.error('Failed to load jobs', e); }
+        };
+
+        const loadProfile = async () => {
+          try {
+            const res = await fetch('/api/profile');
+            profile.value = await res.json();
+            skillsInput.value = (profile.value.skills || []).join(', ');
+          } catch (e) { console.error('Failed to load profile', e); }
+        };
+
+        const pollRunner = async () => {
+          try {
+            const res = await fetch('/api/runner/status');
+            runner.value = await res.json();
+          } catch (e) {}
+        };
+
+        const executeSearch = async () => {
+          searching.value = true;
+          try {
+            const roles = searchForm.value.rolesInput.split(',').map(r => r.strip ? r.strip() : r.trim()).filter(Boolean);
+            const platforms = searchForm.value.platformSelect.split(',').map(p => p.trim());
+            const payload = {
+              roles: roles,
+              locations: [searchForm.value.location],
+              platforms: platforms,
+              limit: 15,
+              min_fit_score: searchForm.value.minFit,
+              easy_apply_only: searchForm.value.easyApplyOnly
+            };
+            const res = await fetch('/api/search', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            searchResults.value = await res.json();
+            await loadStats();
+            await loadJobs();
+          } catch (e) {
+            alert('Search failed: ' + e);
+          } finally {
+            searching.value = false;
+          }
+        };
+
+        const changeJobStatus = async (jobId, newStatus) => {
+          try {
+            await fetch(`/api/jobs/${jobId}/status`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: newStatus })
+            });
+            await loadJobs();
+            await loadStats();
+          } catch (e) { alert('Status update failed'); }
+        };
+
+        const deleteJob = async (jobId) => {
+          if (!confirm(`Delete job #${jobId}?`)) return;
+          try {
+            await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
+            await loadJobs();
+            await loadStats();
+          } catch (e) { alert('Delete failed'); }
+        };
+
+        const openPitchModal = async (job) => {
+          pitchModal.value.open = true;
+          pitchModal.value.jobTitle = job.job_title;
+          pitchModal.value.company = job.company_name;
+          pitchModal.value.loading = true;
+          pitchModal.value.pitch = '';
+          try {
+            const res = await fetch(`/api/jobs/${job.id}/pitch`, { method: 'POST' });
+            const data = await res.json();
+            pitchModal.value.pitch = data.pitch;
+          } catch (e) {
+            pitchModal.value.pitch = 'Failed to generate pitch note: ' + e;
+          } finally {
+            pitchModal.value.loading = false;
+          }
+        };
+
+        const copyPitch = () => {
+          navigator.clipboard.writeText(pitchModal.value.pitch);
+          alert('Pitch copied to clipboard!');
+        };
+
+        const saveProfile = async () => {
+          try {
+            profile.value.skills = skillsInput.value.split(',').map(s => s.trim()).filter(Boolean);
+            await fetch('/api/profile', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(profile.value)
+            });
+            alert('Profile saved successfully!');
+          } catch (e) { alert('Failed to save profile: ' + e); }
+        };
+
+        const startApplyRun = async () => {
+          try {
+            await fetch('/api/runner/apply', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                limit: runnerForm.value.limit,
+                dry_run: runnerForm.value.dryRun,
+                mode: runnerForm.value.mode
+              })
+            });
+            await pollRunner();
+          } catch (e) { alert('Failed to start apply task: ' + e); }
+        };
+
+        const startFullPipeline = async () => {
+          try {
+            await fetch('/api/runner/auto', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                mode: runnerForm.value.mode,
+                dry_run: runnerForm.value.dryRun,
+                max_apply: runnerForm.value.limit
+              })
+            });
+            await pollRunner();
+          } catch (e) { alert('Failed to start pipeline: ' + e); }
+        };
+
+        const stopRunner = async () => {
+          await fetch('/api/runner/stop', { method: 'POST' });
+          await pollRunner();
+        };
+
+        const clearLogs = () => {
+          runner.value.recent_logs = [];
+        };
+
+        const loadAllData = async () => {
+          await Promise.all([loadStats(), loadJobs(), loadProfile(), pollRunner()]);
+        };
+
+        onMounted(() => {
+          loadAllData();
+          setInterval(pollRunner, 2500);
+        });
+
+        return {
+          currentTab,
+          stats,
+          jobsList,
+          filterStatus,
+          profile,
+          skillsInput,
+          searching,
+          searchResults,
+          searchForm,
+          runner,
+          runnerForm,
+          pitchModal,
+          navClass,
+          platformBadgeClass,
+          fitScoreClass,
+          loadAllData,
+          loadJobs,
+          executeSearch,
+          changeJobStatus,
+          deleteJob,
+          openPitchModal,
+          copyPitch,
+          saveProfile,
+          startApplyRun,
+          startFullPipeline,
+          stopRunner,
+          clearLogs
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>

@@ -394,6 +394,44 @@ def auto_command(
 cli.add_command(auth_command, name='login')
 
 
+@cli.command(name='ui')
+@click.option('--port', default=8000, type=int, help='Port to serve the dashboard on')
+@click.option('--host', default='127.0.0.1', help='Host interface to bind to')
+@click.option('--open-browser/--no-open-browser', 'open_browser', default=True, help='Automatically open browser on launch')
+def ui_command(port: int, host: str, open_browser: bool) -> None:
+	"""Launch the interactive web dashboard and REST API."""
+	import threading
+	import time
+	import webbrowser
+	import uvicorn
+
+	url = f'http://{host}:{port}'
+	console.print(
+		Panel.fit(
+			f'[bold cyan]⚡ AutoApply Web Dashboard & Control Center[/bold cyan]\n\n'
+			f'[bold green]Web UI:[/bold green] [underline cyan]{url}[/underline cyan]\n'
+			f'[bold yellow]REST API Docs:[/bold yellow] [underline]{url}/docs[/underline]\n\n'
+			f'[dim]Control job discovery, application tracking, profile settings, and live activity from your browser.[/dim]\n'
+			f'[dim]Press Ctrl+C to shut down server.[/dim]',
+			title='Mission Control Online',
+			border_style='cyan',
+		)
+	)
+
+	if open_browser:
+		def _open() -> None:
+			time.sleep(1.2)
+			webbrowser.open(url)
+
+		threading.Thread(target=_open, daemon=True).start()
+
+	uvicorn.run('job_agent.api.app:app', host=host, port=port, log_level='info')
+
+
+cli.add_command(ui_command, name='web')
+cli.add_command(ui_command, name='dashboard')
+
+
 # ==============================================================================
 # PIPELINE COMMANDS
 # ==============================================================================

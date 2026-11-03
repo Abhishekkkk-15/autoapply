@@ -97,6 +97,16 @@ uv run autoapply email --limit 5
 uv run autoapply pitch <job_id>
 ```
 
+### Workflow E: Web Dashboard & REST API Control Center
+```bash
+# Launch interactive web dashboard & background runner:
+uv run autoapply ui
+# Or aliases:
+uv run autoapply web
+uv run autoapply dashboard
+```
+Accessible at `http://127.0.0.1:8000` (docs at `http://127.0.0.1:8000/docs`). Provides visual search execution, job tracker with inline status updates, autopilot background launcher with log streaming, and profile/preferences configuration.
+
 ---
 
 ## 3. Database Inspection & Application Tracking

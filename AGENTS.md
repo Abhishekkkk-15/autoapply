@@ -110,10 +110,15 @@ All discovered jobs pass through [`JobFitScorer.score_fit`](file:///D:/js/autoap
 
 ```
 job_agent/
-├── main.py                     # Click CLI runner (~17 commands)
+├── main.py                     # Click CLI runner (~18 commands)
 ├── orchestrator.py             # Multi-agent pipeline controller
 ├── config.py                   # Pydantic v2 data models & JSON storage
 ├── database.py                 # SQLite JobTracker engine (jobs_tracker.db)
+├── api/                        # REST API backend & Web Mission Control Dashboard
+│   ├── app.py                  # FastAPI application & static mount
+│   ├── routes.py               # REST endpoints (/api/jobs, /api/search, /api/runner)
+│   ├── state.py                # Async background runner state & log buffer
+│   └── static/index.html       # Single-page Vue 3 + Tailwind CSS dashboard
 ├── agents/
 │   ├── search_agent.py         # Search coordinator (fast-path + browser fallback)
 │   ├── application_agent.py    # Form autofill and resume attachment agent
@@ -192,6 +197,15 @@ uv run autoapply auto --mode ask --max-apply 5
 
 # End-to-end autonomous pipeline (Free Mode autopilot):
 uv run autoapply auto --mode free --max-apply 5
+```
+
+### Web Dashboard & REST API
+```bash
+# Launch interactive web dashboard & background runner (http://127.0.0.1:8000):
+uv run autoapply ui
+# Or aliases:
+uv run autoapply web
+uv run autoapply dashboard
 ```
 
 ---

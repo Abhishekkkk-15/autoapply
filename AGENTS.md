@@ -81,6 +81,11 @@ flowchart TD
 
 ## 4. Strict Safety & Candidate Privacy Rules (MUST FOLLOW)
 
+> [!IMPORTANT]
+> **Explicit Git Commit & Push Rule (MANDATORY)**:
+> **NEVER commit and push code until the user explicitly commands you to do so.**
+> Autonomous agents must NEVER execute `git commit` or `git push` on their own initiative. All code edits, tests, and refactors must remain uncommitted in the local working directory until the user specifically instructs: *"commit and push"* or gives explicit written approval.
+
 > [!CAUTION]
 > **Strict Privacy Guardrail**: NEVER commit, stage, or log candidate personal data:
 > - `job_agent/data/resume.pdf` and `job_agent/data/resume.txt`
@@ -212,10 +217,11 @@ uv run autoapply dashboard
 
 ## 8. Coding Standards & Git Conventions
 
+- **Explicit User Authorization Required**: NEVER run `git commit` or `git push` autonomously. Only commit and push when the user explicitly instructs you to do so.
 - **Python Version**: Write Python 3.11+ code with `from __future__ import annotations`.
 - **Type Annotations**: Mandatory for all function signatures and data schemas.
 - **Formatting & Linting**: Line length 120, format using `uv run ruff check`.
-- **Git Commits**: Follow Conventional Commits format:
+- **Git Commits**: When explicitly requested by the user, follow Conventional Commits format:
   - `feat(<scope>): <description>`
   - `fix(<scope>): <description>`
   - `docs(<scope>): <description>`

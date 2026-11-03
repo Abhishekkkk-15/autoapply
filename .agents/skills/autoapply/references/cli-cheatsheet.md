@@ -5,11 +5,12 @@
 | `doctor` | *(None)* | Diagnose Chrome, LLM connectivity, resume, database, and auth cookies |
 | `setup` | `--resume <path>`, `--auto`, `--clean` | Interactive onboarding wizard; parses resume and saves profile |
 | `auth` / `login` | `--platform <name>`, `--manual`, `--email`, `--password` | Opens headful Chrome to log in and persist cookies |
-| `search` | `--platforms <list>`, `--roles "..."`, `--location "..."`, `--limit <N>`, `--min-fit <score>`, `--fast/--browser` | Discovers vacancies matching candidate profile |
+| `search` | `--platforms <list>`, `--roles "..."`, `--location "..."`, `--posted-within <days>`, `--days <days>`, `--limit <N>`, `--min-fit <score>`, `--easy-apply-only`, `--fast/--browser` | Discovers vacancies matching candidate profile with date recency filtering |
 | `apply` | `--dry-run/--live`, `--limit <N>` | Autofills Easy Apply forms for pending cataloged jobs |
 | `extract` | `--limit <N>` | Scrapes recruiter names, emails, and LinkedIn links |
 | `email` | `--limit <N>` | Dispatches tailored cold emails via browser webmail (Gmail) |
 | `auto` | `--mode ask/free`, `--dry-run/--live`, `--platforms <list>`, `--roles "..."`, `--min-fit <score>`, `--max-apply <N>` | Unified 4-phase autonomous recruitment pipeline |
+| `ui` / `web` / `dashboard` | `[--port 8000] [--host 127.0.0.1] [--open/--no-open]` | Launches Vue 3 web dashboard & REST API control center (`/docs`) |
 | `jobs` | `--limit <N>`, `--platform <name>` | Formatted table listing of cataloged jobs |
 | `job show` | `<job_id>` | Detailed inspection of a job record, stack, and notes |
 | `job update` | `<job_id> --status <status> [--notes "..."]` | Updates status (`found`, `applied`, `interview`, `rejected`, `offer`) |

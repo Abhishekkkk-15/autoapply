@@ -59,7 +59,9 @@ flowchart TD
    - **Dry-Run Preview (`--dry-run`)**: Fills out every form field and verifies accuracy on-screen, stopping right before the final submission button.
 
 4. **Lightning-Fast Zero-Token Discovery Engine (`autoapply search`)**:
-   - **Zero-Token Fast Path (Default)**: Leverages LinkedIn's public unauthenticated `jobs-guest` API and open ATS aggregators (Greenhouse, Lever, Ashby, Workday). Discovers 50+ vacancies in ~2 seconds without launching Chromium, burning zero LLM tokens, and completely eliminating account flagging risk.
+   - **Multi-Platform Parallel Ingestion (Default)**: Concurrently queries LinkedIn Guest API, RemoteOK, WeWorkRemotely (WWR), and open ATS aggregators (Greenhouse, Lever, Ashby, Workday). Discovers 50+ vacancies in ~2 seconds without launching Chromium, burning zero LLM tokens, and eliminating account flagging risk.
+   - **Cross-Platform Fuzzy Deduplication**: Normalizes corporate legal entities (Inc, LLC, Corp) and titles to collapse cross-postings into a single canonical record.
+   - **Salary & Easy Apply Filters**: Extracts disclosed salary ranges from remote platforms and provides an `--easy-apply-only` filter.
    - **Automated Hard Gate Filter**: Automatically applies junior/seniority hard qualification gates and filters low-scoring roles before storing records in SQLite.
    - **Browser Automation Fallback (`--browser`)**: Seamlessly launches headful/headless Chrome for platforms that require active login (e.g., Wellfound or Naukri).
 

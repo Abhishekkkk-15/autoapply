@@ -1,14 +1,21 @@
 from __future__ import annotations
 
-import pytest
 from unittest.mock import MagicMock, patch
 
 from job_agent.config import JobPreferences, UserProfile
 from job_agent.database import JobTracker
-from job_agent.services.fast_search.linkedin_guest import LinkedInGuestScraper
+from job_agent.services.fast_search.deduplicator import (
+	clean_company_name,
+	clean_job_title,
+	clean_job_url,
+	compute_job_fingerprint,
+)
 from job_agent.services.fast_search.freehire_client import FreehireClient
+from job_agent.services.fast_search.linkedin_guest import LinkedInGuestScraper
 from job_agent.services.fast_search.manager import FastSearchManager
 from job_agent.services.fast_search.models import DiscoveredJob
+from job_agent.services.fast_search.remoteok_provider import RemoteOKProvider
+from job_agent.services.fast_search.wwr_provider import WeWorkRemotelyProvider
 
 
 def test_discovered_job_model_conversion():
@@ -156,11 +163,17 @@ def test_fast_search_manager_qualification_flow(tmp_path):
 
 	mock_ats = MagicMock(spec=FreehireClient)
 	mock_ats.search.return_value = []
+	mock_rok = MagicMock(spec=RemoteOKProvider)
+	mock_rok.search.return_value = []
+	mock_wwr = MagicMock(spec=WeWorkRemotelyProvider)
+	mock_wwr.search.return_value = []
 
 	manager = FastSearchManager(
 		tracker=tracker,
 		linkedin_scraper=mock_li,
 		freehire_client=mock_ats,
+		remoteok_provider=mock_rok,
+		wwr_provider=mock_wwr,
 	)
 
 	user = UserProfile(
@@ -189,3 +202,142 @@ def test_fast_search_manager_qualification_flow(tmp_path):
 	pending = tracker.get_pending_jobs()
 	assert len(pending) == 1
 	assert pending[0]["job_title"] == "Full Stack Software Engineer"
+
+
+def test_deduplicator():
+	url1 = "https://www.linkedin.com/jobs/view/12345678/?refId=abcdef&trackingId=9999"
+	url2 = "https://www.linkedin.com/jobs/view/12345678"
+	assert clean_job_url(url1) == clean_job_url(url2)
+
+	comp1 = "Acme Technologies, Inc."
+	comp2 = "Acme LLC"
+	assert clean_company_name(comp1) == clean_company_name(comp2) == "acme"
+
+	title1 = "Senior Backend Engineer (Remote) [Urgent]"
+	title2 = "Senior Backend Engineer"
+	assert clean_job_title(title1) == clean_job_title(title2) == "senior backend engineer"
+
+	fp1 = compute_job_fingerprint("Vercel, Inc.", "Full Stack Engineer (Remote)")
+	fp2 = compute_job_fingerprint("Vercel", "Full Stack Engineer")
+	assert fp1 == fp2
+
+
+def test_remoteok_provider_parsing():
+	provider = RemoteOKProvider()
+	mock_feed = [
+		{"legal": "notice"},
+		{
+			"id": "888",
+			"position": "Senior AI Infrastructure Engineer",
+			"company": "Scale AI, Inc.",
+			"url": "https://remoteok.com/remote-jobs/888",
+			"apply_url": "https://boards.greenhouse.io/scaleai/jobs/888?gh_src=remoteok",
+			"location": "Worldwide",
+			"tags": ["ai", "python", "kubernetes"],
+			"description": "<p>Build agent scaling infrastructure.</p>",
+			"salary_min": 140000,
+			"salary_max": 200000,
+			"date": "2026-10-15",
+		},
+		{
+			"id": "889",
+			"position": "Sales Development Representative",
+			"company": "ColdCo",
+			"url": "https://remoteok.com/remote-jobs/889",
+			"tags": ["sales", "outreach"],
+			"description": "Cold calling",
+		},
+	]
+	with patch.object(provider, "_fetch_all_jobs", return_value=mock_feed[1:]):
+		jobs = provider.search(query="AI Engineer", limit=5)
+		assert len(jobs) == 1
+		job = jobs[0]
+		assert job.job_title == "Senior AI Infrastructure Engineer"
+		assert job.company_name == "Scale AI, Inc."
+		assert job.platform == "remoteok"
+		assert "140,000" in (job.salary_range or "")
+		assert "ai" in job.required_skills
+		assert not job.is_easy_apply
+
+
+def test_wwr_provider_parsing():
+	provider = WeWorkRemotelyProvider()
+	mock_items = [
+		{
+			"title": "Stripe: Staff Backend Engineer",
+			"link": "https://weworkremotely.com/remote-jobs/12345-staff-backend-engineer?ref=wwr",
+			"description": "<p>Designing high-throughput payment systems with Go, Python, and PostgreSQL.</p>",
+			"pubDate": "Wed, 04 Nov 2026 12:00:00 +0000",
+		},
+		{
+			"title": "DesignAgency: Creative Art Director",
+			"link": "https://weworkremotely.com/remote-jobs/99999-creative-art-director",
+			"description": "Figma design",
+			"pubDate": "Wed, 04 Nov 2026 11:00:00 +0000",
+		},
+	]
+	with patch.object(provider, "_fetch_feed", return_value=mock_items):
+		jobs = provider.search(query="Backend Engineer", limit=5)
+		assert len(jobs) == 1
+		job = jobs[0]
+		assert job.company_name == "Stripe"
+		assert job.job_title == "Staff Backend Engineer"
+		assert job.platform == "weworkremotely"
+		assert "Python" in job.required_skills or "Postgresql" in job.required_skills
+		assert not job.is_easy_apply
+
+
+def test_fast_search_manager_cross_platform_deduplication(tmp_path):
+	db_path = tmp_path / "dedup_tracker.db"
+	tracker = JobTracker(db_path=db_path)
+
+	# Provider 1 (LinkedIn) returns a job
+	mock_li = MagicMock(spec=LinkedInGuestScraper)
+	mock_li.search.return_value = [
+		DiscoveredJob(
+			job_id="li-1",
+			job_title="Software Engineer (Remote)",
+			company_name="Vercel Inc.",
+			job_url="https://www.linkedin.com/jobs/view/111?trackingId=abc",
+			platform="linkedin",
+			location="Remote",
+			job_description_summary="Next.js and React",
+		)
+	]
+
+	# Provider 2 (RemoteOK) returns the exact same job cross-posted with different URL
+	mock_rok = MagicMock(spec=RemoteOKProvider)
+	mock_rok.search.return_value = [
+		DiscoveredJob(
+			job_id="rok-2",
+			job_title="Software Engineer",
+			company_name="Vercel",
+			job_url="https://remoteok.com/remote-jobs/222",
+			platform="remoteok",
+			location="Remote",
+			job_description_summary="Next.js and React",
+		)
+	]
+
+	mock_ats = MagicMock(spec=FreehireClient)
+	mock_ats.search.return_value = []
+	mock_wwr = MagicMock(spec=WeWorkRemotelyProvider)
+	mock_wwr.search.return_value = []
+
+	manager = FastSearchManager(
+		tracker=tracker,
+		linkedin_scraper=mock_li,
+		freehire_client=mock_ats,
+		remoteok_provider=mock_rok,
+		wwr_provider=mock_wwr,
+	)
+
+	user = UserProfile(years_of_experience=2.0, current_role="Software Engineer")
+	prefs = JobPreferences(target_roles=["Software Engineer"], min_fit_score=20.0)
+
+	result = manager.execute_fast_search(user_profile=user, preferences=prefs)
+
+	# Cross-platform duplicate should be collapsed into a single job
+	assert result["total_scraped"] == 1
+	assert result["saved_count"] == 1
+

@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -474,25 +475,25 @@ def run_command(
 
 
 @cli.command(name='search')
-@click.option('--platforms', default='linkedin,ats', help='Platforms to search (linkedin, ats, or comma-separated)')
+@click.option('--platforms', default='all', help='Platforms to search: linkedin, ats, remoteok, wwr, or all (comma-separated)')
 @click.option('--roles', default='AI Engineer, Software Engineer', help='Role keywords (comma-separated)')
 @click.option('--location', default='Remote', help='Target location')
 @click.option('--limit', default=15, type=int, help='Max jobs to discover per role query')
 @click.option('--min-fit', default=35.0, type=float, help='Minimum fit score threshold percentage (0-100)')
+@click.option('--easy-apply-only', is_flag=True, default=False, help='Only discover jobs with 1-click Easy Apply')
 @click.option('--fast/--browser', default=True, help='Use instant unauthenticated API search (default) or browser automation')
-def search_command(platforms: str, roles: str, location: str, limit: int, min_fit: float, fast: bool) -> None:
+def search_command(platforms: str, roles: str, location: str, limit: int, min_fit: float, easy_apply_only: bool, fast: bool) -> None:
 	"""Phase 1: Search designated job boards and catalog vacancies into database."""
 	user_profile = UserProfile.from_env_or_defaults()
 	platform_list = [p.strip().lower() for p in platforms.split(',') if p.strip()]
 	target_roles = [r.strip() for r in roles.split(',') if r.strip()]
 	target_locations = [loc.strip() for loc in location.split(',') if loc.strip()]
 
-	preferences = JobPreferences(
-		target_roles=target_roles,
-		target_locations=target_locations,
-		platforms=platform_list,  # type: ignore
-		min_fit_score=min_fit,
-	)
+	preferences = JobPreferences.from_env_or_defaults()
+	preferences.target_roles = target_roles
+	preferences.target_locations = target_locations
+	preferences.platforms = platform_list  # type: ignore
+	preferences.min_fit_score = min_fit
 
 	orchestrator = JobAgentOrchestrator(
 		user_profile=user_profile,
@@ -502,12 +503,14 @@ def search_command(platforms: str, roles: str, location: str, limit: int, min_fi
 	if fast:
 		console.print(
 			Panel.fit(
-				f'[bold cyan]⚡ Fast-Path Ingestion Engine (0 Tokens, Unauthenticated APIs)[/bold cyan]\n'
+				f'[bold cyan]⚡ Fast-Path Multi-Platform Engine (0 Tokens, Parallel APIs)[/bold cyan]\n'
 				f'[yellow]Target Roles:[/yellow] {", ".join(target_roles)}\n'
 				f'[yellow]Location:[/yellow] {", ".join(target_locations)}\n'
+				f'[yellow]Platforms:[/yellow] {", ".join(platform_list)}\n'
+				f'[yellow]Easy Apply Only:[/yellow] {"Yes" if easy_apply_only else "No (Includes ATS & Direct)"}\n'
 				f'[yellow]Min Fit Score:[/yellow] {min_fit}%\n'
 				f'[yellow]Candidate Experience:[/yellow] {user_profile.years_of_experience:.1f} years\n'
-				f'[dim]Queries LinkedIn Guest APIs and tech ATS aggregators with hard qualification gating.[/dim]',
+				f'[dim]Concurrently queries LinkedIn Guest, RemoteOK, WeWorkRemotely, and ATS aggregators.[/dim]',
 				title='Fast Discovery Engine',
 				border_style='cyan',
 			)
@@ -519,21 +522,38 @@ def search_command(platforms: str, roles: str, location: str, limit: int, min_fi
 			platforms=platform_list,
 			limit_per_query=limit,
 			min_fit_score=min_fit,
+			easy_apply_only=easy_apply_only,
 		)
 
 		jobs = fast_results.get('jobs', [])
 		total_scraped = fast_results.get('total_scraped', 0)
 		saved_count = fast_results.get('saved_count', 0)
 
-		table = Table(title='Qualified Vacancies Discovered', border_style='cyan', box=box.ROUNDED)
-		table.add_column('#', style='dim', width=4)
-		table.add_column('Title', style='bold white', width=34)
-		table.add_column('Company', style='cyan', width=22)
-		table.add_column('Location', style='yellow', width=18)
-		table.add_column('Fit Score', width=12)
-		table.add_column('Qualification Reason', style='dim')
+		def clean_salary(sal: str | None) -> str:
+			if not sal or sal == '-':
+				return ''
+			s = re.sub(r'(\d+),000', r'\g<1>k', sal)
+			s = re.sub(r'\s*USD\b', '', s, flags=re.IGNORECASE)
+			return s.strip()
 
-		for idx, j in enumerate(jobs[:25], 1):
+		has_salaries = any(bool(clean_salary(j.salary_range)) for j in jobs)
+
+		table = Table(
+			title='Qualified Vacancies Discovered',
+			border_style='cyan',
+			box=box.ROUNDED,
+			expand=True,
+		)
+		table.add_column('#', style='dim', justify='right', no_wrap=True, width=3)
+		table.add_column('Role & Company', style='bold white', ratio=4, overflow='ellipsis')
+		table.add_column('Platform', style='magenta', no_wrap=True)
+		table.add_column('Location', style='yellow', ratio=2, overflow='ellipsis')
+		if has_salaries:
+			table.add_column('Salary', style='green', no_wrap=True)
+		table.add_column('Fit', justify='center', no_wrap=True)
+		table.add_column('Match Highlights', style='dim', ratio=3, overflow='ellipsis')
+
+		for idx, j in enumerate(jobs[:30], 1):
 			score_str = (
 				f'[bold green]{j.match_score:.1f}%[/bold green]'
 				if j.match_score >= 60
@@ -543,7 +563,27 @@ def search_command(platforms: str, roles: str, location: str, limit: int, min_fi
 					else f'[bold red]{j.match_score:.1f}%[/bold red]'
 				)
 			)
-			table.add_row(str(idx), j.job_title[:32], j.company_name[:20], j.location[:16], score_str, j.notes or 'Passes requirements')
+
+			# Format clean reasoning without repeating percentage
+			reason = j.notes or 'Passes requirements'
+			if ';' in reason:
+				parts = [p.strip() for p in reason.split(';') if p.strip()]
+				clean_parts = [p for p in parts if not re.match(r'^\d+%\s*Fit$', p, re.IGNORECASE)]
+				reason = '; '.join(clean_parts[:2]) if clean_parts else parts[0]
+
+			role_company = f"{j.job_title}\n[cyan]{j.company_name}[/cyan]"
+
+			row_items = [
+				str(idx),
+				role_company,
+				j.platform,
+				j.location,
+			]
+			if has_salaries:
+				row_items.append(clean_salary(j.salary_range) or '-')
+			row_items.extend([score_str, reason])
+
+			table.add_row(*row_items)
 
 		console.print()
 		console.print(table)

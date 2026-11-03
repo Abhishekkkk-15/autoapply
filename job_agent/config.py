@@ -216,8 +216,8 @@ class JobPreferences(BaseModel):
 		else:
 			return '&f_E=4,5'  # Mid-Senior, Director
 
-	platforms: list[Literal['linkedin', 'wellfound', 'naukri', 'ats', 'freehire', 'all']] = Field(
-		default_factory=lambda: ['linkedin', 'wellfound', 'naukri', 'ats'],
+	platforms: list[Literal['linkedin', 'wellfound', 'naukri', 'ats', 'freehire', 'remoteok', 'wwr', 'weworkremotely', 'all']] = Field(
+		default_factory=lambda: ['linkedin', 'remoteok', 'wwr', 'ats'],
 		description='Job platforms to search and apply on',
 	)
 	max_applications_per_run: int = Field(
@@ -294,7 +294,7 @@ class JobRecord(BaseModel):
 	job_title: str
 	company_name: str
 	job_url: str
-	platform: Literal['linkedin', 'wellfound', 'naukri', 'other']
+	platform: str = 'other'
 	location: str = 'Unknown'
 	salary_range: str | None = None
 	job_description_summary: str = ''

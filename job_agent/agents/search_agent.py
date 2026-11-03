@@ -125,8 +125,9 @@ CRITICAL SEARCH & COMPLETION RULES:
 		platforms: list[str] | None = None,
 		limit_per_query: int = 15,
 		min_fit_score: float | None = None,
+		easy_apply_only: bool = False,
 	) -> dict[str, Any]:
-		"""Execute instant, unauthenticated API search across LinkedIn and open ATS aggregators."""
+		"""Execute instant, unauthenticated API search across LinkedIn, RemoteOK, WWR, and ATS aggregators."""
 		return self.fast_search_manager.execute_fast_search(
 			user_profile=self.user_profile,
 			preferences=self.preferences,
@@ -135,6 +136,7 @@ CRITICAL SEARCH & COMPLETION RULES:
 			platforms=platforms,
 			limit_per_query=limit_per_query,
 			min_fit_score=min_fit_score,
+			easy_apply_only=easy_apply_only,
 		)
 
 	async def run_all(self, use_fast_search: bool = True) -> dict[str, int]:
@@ -152,8 +154,11 @@ CRITICAL SEARCH & COMPLETION RULES:
 				min_fit_score=self.preferences.min_fit_score,
 			)
 			results['fast_search_saved'] = fast_res.get('saved_count', 0)
-			# Fast search handles linkedin and ats aggregators; remove them from browser fallback queue
-			remaining_platforms = [p for p in remaining_platforms if p not in ('linkedin', 'ats', 'freehire')]
+			# Fast search handles linkedin, ats, remoteok, and wwr; remove them from browser fallback queue
+			remaining_platforms = [
+				p for p in remaining_platforms
+				if p not in ('linkedin', 'ats', 'freehire', 'remoteok', 'rok', 'wwr', 'weworkremotely')
+			]
 
 		# Execute browser automation for login-gated portals (e.g. Wellfound, Naukri)
 		for platform in remaining_platforms:

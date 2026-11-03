@@ -39,15 +39,18 @@ uv run autoapply config check
 
 ## 2. Standard Workflows & Command Runbooks
 
-### Workflow A: Zero-Token Fast Job Search (Recommended First Step)
-Uses unauthenticated LinkedIn guest APIs and direct tech ATS aggregators (Greenhouse, Ashby, Lever) to scrape and score jobs in seconds without burning LLM tokens:
+### Workflow A: Zero-Token Fast Multi-Platform Search (Recommended First Step)
+Uses unauthenticated APIs and feeds across LinkedIn Guest, RemoteOK, WeWorkRemotely, and tech ATS aggregators (Greenhouse, Ashby, Lever) in parallel:
 
 ```bash
-# Basic fast search (defaults to roles from user_profile.json):
-uv run autoapply search --platforms linkedin,ats --limit 25 --min-fit 50
+# Search across all fast platforms concurrently (LinkedIn, RemoteOK, WWR, ATS):
+uv run autoapply search --platforms all --limit 25 --min-fit 50
 
-# Custom role & location search:
-uv run autoapply search --roles "AI Engineer, Full Stack Developer" --location "Remote" --limit 50 --min-fit 60
+# Target specific platforms (e.g. RemoteOK and WeWorkRemotely for remote tech roles with disclosed salaries):
+uv run autoapply search --platforms remoteok,wwr --roles "AI Engineer, Backend Developer" --limit 30
+
+# Filter exclusively for 1-click Easy Apply roles:
+uv run autoapply search --easy-apply-only --min-fit 55
 
 # Deep browser search for login-gated portals (Wellfound, Naukri):
 uv run autoapply search --browser --platforms wellfound,naukri
